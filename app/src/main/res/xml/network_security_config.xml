@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+      This configuration block tells the Android Operating System
+      that our application is explicitly allowed to make secure (HTTPS) network
+      connections to any domain ending in ".netlify.app".
+      This is required on modern Android versions for security.
+    -->
+    <domain-config cleartextTrafficPermitted="false">
+        
+        <!--
+          The domain we need to trust is the parent domain.
+          includeSubdomains="true" ensures that our specific site,
+          trojanadmin.netlify.app, is included in this trust rule.
+        -->
+        <domain includeSubdomains="true">netlify.app</domain>
+
+    </domain-config>
+</network-security-config>
