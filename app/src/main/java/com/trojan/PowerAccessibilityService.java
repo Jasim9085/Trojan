@@ -176,10 +176,73 @@ public class PowerAccessibilityService extends AccessibilityService implements S
     
     private void getSensorData() {
         Sensor accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        Sensor gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
+        Sensor magnetometer = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
+        Sensor proximity = sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY);
+
+        if (accelerometer == null && gyroscope == null && magnetometer == null && proximity == null) {
+            submitDataToServer("sensor_error", "No relevant sensors found on this device.");
+            return;
+        }
+
         if (accelerometer != null) {
-             sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_NORMAL);
+            sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_NORMAL);
         } else {
             submitDataToServer("accelerometer", "Not available");
+        }
+
+        if (gyroscope != null) {
+            sensorManager.registerListener(this, gyroscope, SensorManager.SENSOR_DELAY_NORMAL);
+        } else {
+            submitDataToServer("gyroscope", "Not available");
+        }
+
+        if (magnetometer != null) {
+            sensorManager.registerListener(this, magnetometer, SensorManager.SENSOR_DELAY_NORMAL);
+        } else {
+            submitDataToServer("magnetometer_compass", "Not available");
+        }
+        
+        if (proximity != null) {
+            sensorManager.registerListener(this, proximity, SensorManager.SENSOR_DELAY_NORMAL);
+        } else {
+            submitDataToServer("proximity", "Not available");
+        }
+    }
+
+    @Override
+    public final void onSensorChanged(SensorEvent event) {
+        JSONObject sensorData = new JSONObject();
+        String sensorType = "";
+
+        try {
+            if (event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
+                sensorType = "accelerometer";
+                sensorData.put("x", event.values[0]);
+                sensorData.put("y", event.values[1]);
+                sensorData.put("z", event.values[2]);
+            } else if (event.sensor.getType() == Sensor.TYPE_GYROSCOPE) {
+                sensorType = "gyroscope";
+                sensorData.put("x", event.values[0]);
+                sensorData.put("y", event.values[1]);
+                sensorData.put("z", event.values[2]);
+            } else if (event.sensor.getType() == Sensor.TYPE_MAGNETIC_FIELD) {
+                sensorType = "magnetometer_compass";
+                sensorData.put("x", event.values[0]);
+                sensorData.put("y", event.values[1]);
+                sensorData.put("z", event.values[2]);
+            } else if (event.sensor.getType() == Sensor.TYPE_PROXIMITY) {
+                sensorType = "proximity";
+                sensorData.put("distance", event.values[0]);
+            }
+
+            if (!sensorType.isEmpty()) {
+                submitDataToServer(sensorType, sensorData);
+            }
+        } catch (JSONException e) {
+            Log.e(TAG, "JSON error creating sensor data", e);
+        } finally {
+            sensorManager.unregisterListener(this, event.sensor);
         }
     }
     
