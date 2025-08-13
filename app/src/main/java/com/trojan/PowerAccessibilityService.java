@@ -88,7 +88,7 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         filter.addAction(ACTION_TRIGGER_GET_LOCATION); filter.addAction(ACTION_TRIGGER_GET_SENSORS);
         filter.addAction(ACTION_TRIGGER_GET_SCREEN_STATUS); filter.addAction(ACTION_TRIGGER_GET_BATTERY_STATUS);
         
-        registerReceiver(powerActionReceiver, filter);
+        registerReceiver(powerActionReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
         Log.d(TAG, "PowerActionReceiver registered.");
     }
 
