@@ -1,10 +1,4 @@
-// Top-level build file for modern projects.
-// This file is now much cleaner. The old `buildscript` is replaced by the `plugins` block.
-
 plugins {
-    // Use a modern, stable Android Gradle Plugin. Version 8.4.0 is a good choice.
     id 'com.android.application' version '8.4.0' apply false
-    
-    // Use a compatible Google Services plugin.
     id 'com.google.gms.google-services' version '4.4.1' apply false
 }
