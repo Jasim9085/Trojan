@@ -1,24 +1,47 @@
-apply plugin: 'com.android.application'
+// This is the new, complete build.gradle file for your 'app' module.
+
+// Use the modern 'plugins' block. This replaces 'apply plugin'.
+// I have also added the google-services plugin, which is required for your google-services.json to work.
+plugins {
+    id 'com.android.application'
+    id 'com.google.gms.google-services'
+}
 
 android {
-    compileSdkVersion 29
-    buildToolsVersion "29.0.3"
+    // A 'namespace' is required by modern Android plugins. It's usually the same as your applicationId.
+    namespace 'com.trojan'
+
+    // Updated SDK version to a more modern one.
+    compileSdk 34
 
     defaultConfig {
         applicationId "com.trojan"
-        minSdkVersion 14
-        targetSdkVersion 29
+        minSdk 14 // Kept your original minSdk
+        targetSdk 34 // Updated to match compileSdk
         versionCode 1
         versionName "1.0"
     }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+
+    // This section is needed for modern Gradle to know which Java version to use.
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
 }
 
 dependencies {
+    // Your existing dependency is kept.
     implementation fileTree(dir: 'libs', include: ['*.jar'])
+
+    // It's good practice to add some modern default libraries.
+    // You can add these if you need them later.
+    // implementation 'androidx.core:core-ktx:1.13.1'
+    // implementation 'androidx.appcompat:appcompat:1.6.1'
 }
