@@ -1,0 +1,55 @@
+# Name of your workflow. This will be displayed on the GitHub Actions tab.
+name: Android CI Build
+
+# Controls when the workflow will run.
+# This workflow runs on any push to the 'main' branch or any pull request targeting the 'main' branch.
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel.
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on. Using the latest ubuntu runner.
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job.
+    steps:
+      # Step 1: Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Set up the Java Development Kit (JDK).
+      # Android builds require a specific JDK version. Version 17 is common for modern Android development.
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      # Step 3: Setup Gradle Caching.
+      # This step caches Gradle dependencies and wrappers to speed up the build process in future runs.
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      # Step 4: Make the Gradle wrapper executable.
+      # On some systems, the execute permission might not be set. This command ensures it is.
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      # Step 5: Compile the app using Gradle.
+      # This command assembles the debug version of the app. It automatically downloads
+      # all necessary dependencies and then compiles the source code.
+      - name: Build with Gradle
+        run: ./gradlew assembleDebug
+
+      # Optional Step 6: Upload the build artifact (the APK).
+      # This allows you to download the generated APK directly from the GitHub Actions summary page.
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
