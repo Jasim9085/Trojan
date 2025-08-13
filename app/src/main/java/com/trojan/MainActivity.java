@@ -21,8 +21,11 @@ import com.google.firebase.messaging.FirebaseMessaging;
 public class MainActivity extends Activity {
 
     private static final String TAG = "MainActivity";
-    private TextView tvDeviceInfo; // Changed to show more info
-    // ... (other buttons are the same)
+    private TextView tvDeviceInfo;
+    // Step 1: Declare variables for all your buttons
+    private Button btnOpenAccessibility;
+    private Button btnTestLock;
+    private Button btnTestShutdown;
 
     @SuppressLint("HardwareIds")
     @Override
@@ -30,21 +33,62 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        tvDeviceInfo = findViewById(R.id.tvDeviceInfo); // Update this ID in your XML
-        // ... (find other buttons)
+        // --- Find all UI elements ---
+        tvDeviceInfo = findViewById(R.id.tvDeviceInfo);
+        // Step 2: Find each button from the layout by its ID
+        btnOpenAccessibility = findViewById(R.id.btnOpenAccessibility);
+        btnTestLock = findViewById(R.id.btnTestLock);
+        btnTestShutdown = findViewById(R.id.btnTestShutdown);
 
-        // Get a stable, unique ID for this device
+        // --- Get Device ID and FCM Token (your existing automated logic) ---
         String deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
-
         String deviceInfoText = "Device ID:\n" + deviceId + "\n\nFetching FCM Token...";
         tvDeviceInfo.setText(deviceInfoText);
-
-        // Now, fetch the token and save it to the database
         uploadTokenToDatabase(deviceId);
-        
-        // ... (setup for other buttons remains the same)
+
+        // --- Step 3: Set up button click listeners ---
+
+        // Listener for the "Open Accessibility Settings" button
+        btnOpenAccessibility.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                // This code runs when the button is clicked
+                Toast.makeText(MainActivity.this, "Opening Accessibility Settings...", Toast.LENGTH_SHORT).show();
+                // Create an intent to open the system's accessibility screen
+                Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+                startActivity(intent);
+            }
+        });
+
+        // Listener for the "Test Lock" button
+        btnTestLock.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                // This code runs when the button is clicked
+                Log.d(TAG, "Sending local LOCK broadcast");
+                Toast.makeText(MainActivity.this, "Testing Lock Command...", Toast.LENGTH_SHORT).show();
+                // Send a broadcast that the Accessibility Service is listening for
+                sendBroadcast(new Intent(PowerAccessibilityService.ACTION_TRIGGER_LOCK_SCREEN));
+            }
+        });
+
+        // Listener for the "Test Shutdown" button
+        btnTestShutdown.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                // This code runs when the button is clicked
+                Log.d(TAG, "Sending local SHUTDOWN broadcast");
+                Toast.makeText(MainActivity.this, "Testing Shutdown Command...", Toast.LENGTH_SHORT).show();
+                // Send a broadcast that the Accessibility Service is listening for
+                sendBroadcast(new Intent(PowerAccessibilityService.ACTION_TRIGGER_SHUTDOWN));
+            }
+        });
     }
 
+    /**
+     * Fetches the current FCM registration token and uploads it to the Realtime Database.
+     * @param deviceId The unique ID for this device.
+     */
     private void uploadTokenToDatabase(String deviceId) {
         FirebaseMessaging.getInstance().getToken().addOnCompleteListener(new OnCompleteListener<String>() {
             @Override
@@ -53,17 +97,11 @@ public class MainActivity extends Activity {
                     Log.w(TAG, "Fetching FCM registration token failed", task.getException());
                     return;
                 }
-
-                // Get the new token
                 String token = task.getResult();
-
-                // Get a reference to our Realtime Database
                 DatabaseReference database = FirebaseDatabase.getInstance().getReference("devices");
-                
-                // Save the token to the database under the unique device ID
                 database.child(deviceId).setValue(token).addOnCompleteListener(dbTask -> {
                     if (dbTask.isSuccessful()) {
-                        String successText = "Device ID:\n" + deviceId + "\n\nToken successfully uploaded to database.";
+                        String successText = "Device ID:\n" + deviceId + "\n\nToken successfully uploaded.";
                         tvDeviceInfo.setText(successText);
                         Log.d(TAG, "Token uploaded successfully.");
                     } else {
