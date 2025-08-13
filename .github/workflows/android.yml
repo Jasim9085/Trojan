@@ -16,7 +16,7 @@ jobs:
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Step 1: Checks-out your repository under $GITHUB_WORKSPACE
+      # Step 1: Checks-out your repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -28,22 +28,20 @@ jobs:
           distribution: 'temurin'
 
       # Step 3: Install a specific version of Gradle
-      # This step downloads and sets up Gradle without needing the wrapper.
-      # You can change '8.7' to any other Gradle version your project needs.
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.7'
       
       # Step 4: Create google-services.json from secret
-      # This step securely creates the google-services.json file needed for the build.
-      # It only runs if you have created the secret in your repository settings.
+      # This step securely creates the file needed for the build.
+      # It uses the secret you configured in your repository settings.
       - name: Create google-services.json
-        if: secrets.GOOGLE_SERVICES_JSON != ''
+        # THIS IS THE LINE THAT HAS BEEN FIXED
+        if: ${{ secrets.GOOGLE_SERVICES_JSON != '' }}
         run: echo "${{ secrets.GOOGLE_SERVICES_JSON }}" > app/google-services.json
 
       # Step 5: Compile the app using the installed Gradle
-      # Note that we are now calling 'gradle' directly, not './gradlew'.
       - name: Build with Gradle
         run: gradle assembleDebug
 
