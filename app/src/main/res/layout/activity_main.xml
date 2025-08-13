@@ -13,10 +13,6 @@
         android:textSize="20sp"
         android:textStyle="bold"/>
 
-    <!--
-        THIS IS THE LINE THAT HAS BEEN FIXED.
-        The ID is now 'tvDeviceInfo' to match the Java code.
-    -->
     <TextView
         android:id="@+id/tvDeviceInfo"
         android:layout_width="match_parent"
@@ -55,10 +51,14 @@
         android:layout_marginTop="16dp"
         android:text="2. Test Lock Command"/>
 
+    <!--
+        THIS IS THE BUTTON THAT HAS BEEN FIXED.
+        The typo 'android.layout_height' is now correctly 'android:layout_height'.
+    -->
     <Button
         android:id="@+id/btnTestShutdown"
         android:layout_width="match_parent"
-        android.layout_height="wrap_content"
+        android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:text="3. Test Shutdown Command"/>
 
