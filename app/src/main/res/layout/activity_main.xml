@@ -13,12 +13,16 @@
         android:textSize="20sp"
         android:textStyle="bold"/>
 
+    <!--
+        THIS IS THE LINE THAT HAS BEEN FIXED.
+        The ID is now 'tvDeviceInfo' to match the Java code.
+    -->
     <TextView
-        android:id="@+id/tvFcmToken"
+        android:id="@+id/tvDeviceInfo"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:text="Fetching token..."
+        android:text="Initializing..."
         android:textIsSelectable="true"
         android:background="#ECECEC"
         android:padding="8dp"/>
@@ -54,7 +58,7 @@
     <Button
         android:id="@+id/btnTestShutdown"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android.layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:text="3. Test Shutdown Command"/>
 
