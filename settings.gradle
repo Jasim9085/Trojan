@@ -1,13 +1,18 @@
-// settings.gradle
 pluginManagement {
-    google()
-    mavenCentral() // Use mavenCentral instead of the defunct jcenter()
-    gradlePluginPortal()
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
 }
+
 dependencyResolutionManagement {
-    google()
-    mavenCentral() // Use mavenCentral here as well
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
 }
+
 rootProject.name = "Trojan"
 include ':app'
-
