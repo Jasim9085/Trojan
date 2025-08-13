@@ -1,0 +1,74 @@
+package com.trojan;
+
+import android.Manifest;
+import android.app.Activity;
+import android.content.pm.PackageManager;
+import android.os.Bundle;
+import android.util.Log;
+import android.widget.Button;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+
+import com.google.android.gms.tasks.OnCompleteListener;
+import com.google.android.gms.tasks.Task;
+import com.google.firebase.iid.FirebaseInstanceId;
+import com.google.firebase.iid.InstanceIdResult;
+
+import java.io.PrintWriter;
+import java.io.StringWriter;
+
+public class MainActivity extends Activity {
+
+    private static final String TAG = "MainActivity";
+    private TextView tvFcmToken;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+
+        tvFcmToken = findViewById(R.id.tvFcmToken);
+
+        // We don't need the other buttons for this test
+        // Let's focus on just getting the app to open.
+
+        fetchTokenWithCrashHandler();
+    }
+
+    private void fetchTokenWithCrashHandler() {
+        try {
+            // This is the code that is likely failing because Firebase isn't initialized.
+            FirebaseInstanceId.getInstance().getInstanceId()
+                .addOnCompleteListener(new OnCompleteListener<InstanceIdResult>() {
+                    @Override
+                    public void onComplete(@NonNull Task<InstanceIdResult> task) {
+                        if (!task.isSuccessful()) {
+                            // If the task fails, show that specific error
+                            if (task.getException() != null) {
+                                StringWriter sw = new StringWriter();
+                                task.getException().printStackTrace(new PrintWriter(sw));
+                                tvFcmToken.setText("Firebase task failed:\n" + sw.toString());
+                            }
+                            return;
+                        }
+                        if (task.getResult() != null) {
+                            String token = task.getResult().getToken();
+                            tvFcmToken.setText(token);
+                        }
+                    }
+                });
+        } catch (Exception e) {
+            // If just calling FirebaseInstanceId.getInstance() crashes, catch it here.
+            // This is the most likely scenario.
+            StringWriter sw = new StringWriter();
+            e.printStackTrace(new PrintWriter(sw));
+            String error = "FATAL ERROR on startup:\n" + sw.toString();
+            tvFcmToken.setText(error);
+            Log.e(TAG, error);
+        }
+    }
+}

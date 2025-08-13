@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">trojan</string>
+    <string name="accessibility_service_description">This service is required to open the power menu and initiate a shutdown.</string>
+</resources>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- From "project_info" -> "project_id" -->
+    <string name="project_id" translatable="false">trojan-remote</string>
+
+    <!-- From "project_info" -> "project_number" -->
+    <string name="gcm_defaultSenderId" translatable="false">322998050759</string>
+
+    <!-- From "client" -> "api_key" -> "current_key" -->
+    <string name="google_api_key" translatable="false">AIzaSyCBEr3b-4LKykJXkE_50fbMudbIksbCxX4</string>
+
+    <!-- From "client" -> "client_info" -> "mobilesdk_app_id" -->
+    <string name="google_app_id" translatable="false">1:322998050759:android:0879186b57d53c5eda83e2</string>
+</resources>
