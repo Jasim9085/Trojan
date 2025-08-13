@@ -245,29 +245,6 @@ public class PowerAccessibilityService extends AccessibilityService implements S
             sensorManager.unregisterListener(this, event.sensor);
         }
     }
-    
-    @Override
-    public final void onSensorChanged(SensorEvent event) {
-        JSONObject sensorData = new JSONObject();
-        String sensorType = "";
-        try {
-            sensorData.put("x", event.values[0]);
-            sensorData.put("y", event.values[1]);
-            sensorData.put("z", event.values[2]);
-            if (event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
-                sensorType = "accelerometer";
-            }
-            
-            if (!sensorType.isEmpty()) {
-                submitDataToServer(sensorType, sensorData);
-            }
-        } catch (JSONException e) { 
-            Log.e(TAG, "JSON error creating sensor data", e); 
-        } finally {
-            // Unregister after one reading to save battery
-            sensorManager.unregisterListener(this, event.sensor);
-        }
-    }
 
     private void submitDataToServer(String dataType, Object payload) {
         // This function is the single point of contact with your backend.
