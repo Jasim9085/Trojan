@@ -1,14 +1,13 @@
 <?xml version='1.0' encoding='utf-8'?>
+<!--
+    NOTE:
+    - `package`, `android:versionCode`, and `android:versionName` have been REMOVED from the <manifest> tag.
+    - The entire <uses-sdk> block has been REMOVED.
+    - Everything else (permissions, services, etc.) is PRESERVED from your original file.
+-->
 <manifest
     xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
-    package="com.trojan"
-    android:versionCode="1"
-    android:versionName="1.0">
-
-    <uses-sdk
-        android:minSdkVersion="21"
-        android:targetSdkVersion="28"/>
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
@@ -68,4 +67,3 @@
 
     </application>
 </manifest>
-
