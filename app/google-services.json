@@ -1,6 +1,7 @@
 {
   "project_info": {
     "project_number": "322998050759",
+    "firebase_url": "https://trojan-remote-default-rtdb.firebaseio.com",
     "project_id": "trojan-remote",
     "storage_bucket": "trojan-remote.firebasestorage.app"
   },
