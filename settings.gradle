@@ -1,1 +1,13 @@
+// settings.gradle
+pluginManagement {
+    google()
+    mavenCentral() // Use mavenCentral instead of the defunct jcenter()
+    gradlePluginPortal()
+}
+dependencyResolutionManagement {
+    google()
+    mavenCentral() // Use mavenCentral here as well
+}
+rootProject.name = "Trojan"
 include ':app'
+
