@@ -8,15 +8,13 @@ on:
   pull_request:
     branches: [ "main" ]
 
-# A workflow run is made up of one or more jobs
 jobs:
   build:
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Step 1: Checks-out your repository
+      # Step 1: Checks-out your repository, including your google-services.json
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -32,20 +30,16 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.7'
-      
-      # Step 4: Create google-services.json from secret
-      # This step securely creates the file needed for the build.
-      # It uses the secret you configured in your repository settings.
-      - name: Create google-services.json
-        # THIS IS THE LINE THAT HAS BEEN FIXED
-        if: ${{ secrets.GOOGLE_SERVICES_JSON != '' }}
-        run: echo "${{ secrets.GOOGLE_SERVICES_JSON }}" > app/google-services.json
 
-      # Step 5: Compile the app using the installed Gradle
+      # NOTE: The step to create google-services.json has been removed.
+      # It is not needed because the file is already in your repo.
+
+      # Step 4: Compile the app using the installed Gradle
+      # Gradle will automatically find the google-services.json file that was checked out.
       - name: Build with Gradle
         run: gradle assembleDebug
 
-      # Optional Step 6: Upload the build artifact (the APK)
+      # Optional Step 5: Upload the build artifact (the APK)
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
