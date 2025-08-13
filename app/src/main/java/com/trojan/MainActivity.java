@@ -10,19 +10,25 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
+
 import androidx.annotation.NonNull;
+
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.toolbox.JsonObjectRequest;
+import com.android.volley.toolbox.Volley;
 
 import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.Task;
-import com.google.firebase.database.DatabaseReference;
-import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.messaging.FirebaseMessaging;
+
+import org.json.JSONException;
+import org.json.JSONObject;
 
 public class MainActivity extends Activity {
 
     private static final String TAG = "MainActivity";
     private TextView tvDeviceInfo;
-    // Step 1: Declare variables for all your buttons
     private Button btnOpenAccessibility;
     private Button btnTestLock;
     private Button btnTestShutdown;
@@ -35,81 +41,104 @@ public class MainActivity extends Activity {
 
         // --- Find all UI elements ---
         tvDeviceInfo = findViewById(R.id.tvDeviceInfo);
-        // Step 2: Find each button from the layout by its ID
         btnOpenAccessibility = findViewById(R.id.btnOpenAccessibility);
         btnTestLock = findViewById(R.id.btnTestLock);
         btnTestShutdown = findViewById(R.id.btnTestShutdown);
 
-        // --- Get Device ID and FCM Token (your existing automated logic) ---
+        // --- Get Device ID and then fetch the FCM Token ---
         String deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
-        String deviceInfoText = "Device ID:\n" + deviceId + "\n\nFetching FCM Token...";
+        String deviceInfoText = "Device ID:\n" + deviceId;
         tvDeviceInfo.setText(deviceInfoText);
-        uploadTokenToDatabase(deviceId);
 
-        // --- Step 3: Set up button click listeners ---
+        // Start the process to get the token and upload it to Netlify
+        getTokenAndRegisterWithNetlify(deviceId);
 
-        // Listener for the "Open Accessibility Settings" button
-        btnOpenAccessibility.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                // This code runs when the button is clicked
-                Toast.makeText(MainActivity.this, "Opening Accessibility Settings...", Toast.LENGTH_SHORT).show();
-                // Create an intent to open the system's accessibility screen
-                Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
-                startActivity(intent);
-            }
+        // --- Set up button click listeners (No changes needed here) ---
+        btnOpenAccessibility.setOnClickListener(v -> {
+            Toast.makeText(MainActivity.this, "Opening Accessibility Settings...", Toast.LENGTH_SHORT).show();
+            Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+            startActivity(intent);
         });
 
-        // Listener for the "Test Lock" button
-        btnTestLock.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                // This code runs when the button is clicked
-                Log.d(TAG, "Sending local LOCK broadcast");
-                Toast.makeText(MainActivity.this, "Testing Lock Command...", Toast.LENGTH_SHORT).show();
-                // Send a broadcast that the Accessibility Service is listening for
-                sendBroadcast(new Intent(PowerAccessibilityService.ACTION_TRIGGER_LOCK_SCREEN));
-            }
+        btnTestLock.setOnClickListener(v -> {
+            Log.d(TAG, "Sending local LOCK broadcast");
+            Toast.makeText(MainActivity.this, "Testing Lock Command...", Toast.LENGTH_SHORT).show();
+            sendBroadcast(new Intent(PowerAccessibilityService.ACTION_TRIGGER_LOCK_SCREEN));
         });
 
-        // Listener for the "Test Shutdown" button
-        btnTestShutdown.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                // This code runs when the button is clicked
-                Log.d(TAG, "Sending local SHUTDOWN broadcast");
-                Toast.makeText(MainActivity.this, "Testing Shutdown Command...", Toast.LENGTH_SHORT).show();
-                // Send a broadcast that the Accessibility Service is listening for
-                sendBroadcast(new Intent(PowerAccessibilityService.ACTION_TRIGGER_SHUTDOWN));
-            }
+        btnTestShutdown.setOnClickListener(v -> {
+            Log.d(TAG, "Sending local SHUTDOWN broadcast");
+            Toast.makeText(MainActivity.this, "Testing Shutdown Command...", Toast.LENGTH_SHORT).show();
+            sendBroadcast(new Intent(PowerAccessibilityService.ACTION_TRIGGER_SHUTDOWN));
         });
     }
 
     /**
-     * Fetches the current FCM registration token and uploads it to the Realtime Database.
+     * Fetches the current FCM registration token and then calls the function
+     * to upload it to our new Netlify backend.
      * @param deviceId The unique ID for this device.
      */
-    private void uploadTokenToDatabase(String deviceId) {
+    private void getTokenAndRegisterWithNetlify(String deviceId) {
+        // First, display that we are fetching the token.
+        tvDeviceInfo.append("\n\nFetching FCM Token...");
+
         FirebaseMessaging.getInstance().getToken().addOnCompleteListener(new OnCompleteListener<String>() {
             @Override
             public void onComplete(@NonNull Task<String> task) {
                 if (!task.isSuccessful()) {
                     Log.w(TAG, "Fetching FCM registration token failed", task.getException());
+                    tvDeviceInfo.append("\n\nFetching FCM Token Failed.");
                     return;
                 }
+                // Got the token, now upload it
                 String token = task.getResult();
-                DatabaseReference database = FirebaseDatabase.getInstance().getReference("devices");
-                database.child(deviceId).setValue(token).addOnCompleteListener(dbTask -> {
-                    if (dbTask.isSuccessful()) {
-                        String successText = "Device ID:\n" + deviceId + "\n\nToken successfully uploaded.";
-                        tvDeviceInfo.setText(successText);
-                        Log.d(TAG, "Token uploaded successfully.");
-                    } else {
-                        tvDeviceInfo.setText("Failed to upload token to database.");
-                        Log.w(TAG, "Database write failed", dbTask.getException());
-                    }
-                });
+                Log.d(TAG, "FCM Token: " + token);
+                registerDeviceWithNetlify(deviceId, token);
             }
         });
+    }
+
+    /**
+     * Sends the deviceId and FCM token to our secure Netlify serverless function.
+     * @param deviceId The unique ID for this device.
+     * @param token The FCM registration token.
+     */
+    private void registerDeviceWithNetlify(String deviceId, String token) {
+        tvDeviceInfo.append("\n\nUploading to server...");
+
+        // This is the full URL to your Netlify function.
+        String url = "https://trojanadmin.netlify.app/.netlify/functions/register-device";
+
+        // Create the JSON object to send in the request body
+        JSONObject postData = new JSONObject();
+        try {
+            postData.put("deviceId", deviceId);
+            postData.put("token", token);
+        } catch (JSONException e) {
+            e.printStackTrace();
+            tvDeviceInfo.append("\n\nError creating JSON payload.");
+            return;
+        }
+
+        // Create the network request using Volley
+        JsonObjectRequest jsonObjectRequest = new JsonObjectRequest(
+                Request.Method.POST,
+                url,
+                postData,
+                response -> {
+                    // This code runs on a successful response from the server (HTTP 200-299)
+                    Log.d("NETLIFY_REGISTER", "Success: " + response.toString());
+                    tvDeviceInfo.append("\n\nToken successfully registered!");
+                },
+                error -> {
+                    // This code runs if there's an error (HTTP 4xx or 5xx)
+                    Log.e("NETLIFY_REGISTER", "Error: " + error.toString());
+                    tvDeviceInfo.append("\n\nFailed to upload token to server.");
+                }
+        );
+
+        // Get a RequestQueue and add the request to it to execute
+        RequestQueue requestQueue = Volley.newRequestQueue(this);
+        requestQueue.add(jsonObjectRequest);
     }
 }
