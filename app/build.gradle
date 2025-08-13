@@ -1,23 +1,18 @@
 // This is the new, complete build.gradle file for your 'app' module.
 
-// Use the modern 'plugins' block. This replaces 'apply plugin'.
-// I have also added the google-services plugin, which is required for your google-services.json to work.
 plugins {
     id 'com.android.application'
     id 'com.google.gms.google-services'
 }
 
 android {
-    // A 'namespace' is required by modern Android plugins. It's usually the same as your applicationId.
     namespace 'com.trojan'
-
-    // Updated SDK version to a more modern one.
     compileSdk 34
 
     defaultConfig {
         applicationId "com.trojan"
-        minSdk 14 // Kept your original minSdk
-        targetSdk 34 // Updated to match compileSdk
+        minSdk 14
+        targetSdk 34
         versionCode 1
         versionName "1.0"
     }
@@ -29,19 +24,28 @@ android {
         }
     }
 
-    // This section is needed for modern Gradle to know which Java version to use.
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
 }
 
+// THIS IS THE NEW, CRITICAL SECTION
 dependencies {
     // Your existing dependency is kept.
     implementation fileTree(dir: 'libs', include: ['*.jar'])
 
-    // It's good practice to add some modern default libraries.
-    // You can add these if you need them later.
-    // implementation 'androidx.core:core-ktx:1.13.1'
-    // implementation 'androidx.appcompat:appcompat:1.6.1'
+    // Import the Firebase Bill of Materials (BoM).
+    // This automatically manages the versions of all Firebase libraries to ensure they are compatible.
+    implementation platform('com.google.firebase:firebase-bom:33.1.0')
+
+    // Add the dependency for Firebase Cloud Messaging
+    implementation 'com.google.firebase:firebase-messaging'
+
+    // It's recommended to also add Firebase Analytics
+    implementation 'com.google.firebase:firebase-analytics'
+
+    // Add necessary AndroidX libraries that your code is using
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.core:core-ktx:1.13.1'
 }
