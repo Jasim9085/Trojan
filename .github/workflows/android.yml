@@ -20,8 +20,8 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      # Install Android SDK tools
-      - name: Install Android SDK Command-line Tools
+      # Install Android SDK CLI tools + API 34
+      - name: Install Android SDK
         run: |
           sudo mkdir -p /usr/local/lib/android/sdk
           curl -s https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o cmdline-tools.zip
@@ -34,12 +34,21 @@ jobs:
           yes | sdkmanager --licenses
           sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
-      - name: Setup Gradle
+      # Install Gradle (since wrapper is missing)
+      - name: Install Gradle
         uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: 8.7
 
+      # Generate Gradle wrapper
+      - name: Generate Gradle Wrapper
+        run: gradle wrapper --gradle-version 8.7
+
+      # Build APK
       - name: Build with Gradle
         run: ./gradlew clean assembleDebug
 
+      # Upload APK artifact
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
