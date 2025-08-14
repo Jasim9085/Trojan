@@ -7,5 +7,4 @@
     android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
     android:notificationTimeout="100"
     android:canRetrieveWindowContent="true"
-    android:canDispatchGestures="true"
-    tools:targetApi="r" />
+    android:canDispatchGestures="true"/>
