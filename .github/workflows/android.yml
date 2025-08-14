@@ -20,14 +20,18 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      # Install Android SDK Platform 34
-      - name: Install Android SDK Platform 34
-        run: |
-          yes | sdkmanager --sdk_root=$ANDROID_SDK_ROOT --licenses
-          sdkmanager --sdk_root=$ANDROID_SDK_ROOT \
-            "platform-tools" \
-            "platforms;android-34" \
-            "build-tools;34.0.0"
+      # Set up Android SDK
+      - name: Set up Android SDK
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          script: echo "Android SDK ready"
+
+      - name: Accept Android SDK Licenses
+        run: yes | sdkmanager --licenses
+
+      - name: Install Required SDK Packages
+        run: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
