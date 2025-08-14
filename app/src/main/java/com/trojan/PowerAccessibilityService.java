@@ -352,7 +352,7 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         Intent restartServiceIntent = new Intent(getApplicationContext(), this.getClass());
         restartServiceIntent.setPackage(getPackageName());
 
-        PendingIntent restartServicePendingIntent = Pending.getService(
+        PendingIntent restartServicePendingIntent = PendingIntent.getService(
             getApplicationContext(), 
             1, 
             restartServiceIntent, 
