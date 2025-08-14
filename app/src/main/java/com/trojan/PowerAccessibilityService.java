@@ -37,9 +37,13 @@ import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.WindowManager;
+import android.window.SplashScreen;
+import androidx.annotation.RequiresApi;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.ImageView;
-
+import android.graphics.Bitmap;
+import android.graphics.PixelFormat;
+import android.view.Display;
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
 import com.android.volley.toolbox.JsonObjectRequest;
@@ -220,6 +224,7 @@ public class PowerAccessibilityService extends AccessibilityService implements S
     }
 
     // --- NEW: Screenshot Functionality ---
+    @RequiresApi(api = Build.VERSION_CODES.R)
     private void takeScreenshot() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             Log.e(TAG, "Screenshot API is not available on this Android version.");
